@@ -1,0 +1,14 @@
+server:
+  port: ${SERVER_PORT:8080}
+
+spring:
+  datasource:
+    url: jdbc:postgresql://${DB_HOST}:${DB_PORT}/${POSTGRES_DB}?currentSchema=telemetria
+    username: ${AGROLINK_INGESTA_DB_USER}
+    password: ${AGROLINK_INGESTA_DB_PASSWORD}
+  jpa:
+    # El ORM nunca toca el DDL: el schema lo administra deploy/db/*.sql (Principio VI +
+    # evitar que Hibernate intente crear/alterar la hypertable).
+    hibernate:
+      ddl-auto: none
+    open-in-view: false

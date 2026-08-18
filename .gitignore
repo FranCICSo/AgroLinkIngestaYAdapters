@@ -1,0 +1,18 @@
+.claude/settings.local.json
+
+# Secretos reales del stack (Principio VI: nunca commitear credenciales)
+deploy/.env
+
+# Node.js (rinho-receptor)
+node_modules/
+rinho-receptor/coverage/
+npm-debug.log*
+
+# Java / Maven (agrolink-ingesta)
+target/
+*.class
+
+# IDE / OS
+.DS_Store
+*.swp
+.idea/

@@ -1,0 +1,84 @@
+services:
+  timescaledb:
+    image: timescale/timescaledb:2.17.2-pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_PASSWORD: ${POSTGRES_SUPERUSER_PASSWORD}
+      RINHO_RECEPTOR_DB_PASSWORD: ${RINHO_RECEPTOR_DB_PASSWORD}
+      AGROLINK_INGESTA_DB_PASSWORD: ${AGROLINK_INGESTA_DB_PASSWORD}
+    volumes:
+      - timescaledb-data:/var/lib/postgresql/data
+      - ./db:/docker-entrypoint-initdb.d:ro
+    # Publicado solo en localhost para administracion (DataGrip, psql). No queda
+    # expuesto a la red externa (Principio VI: solo el receptor UDP se expone).
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 4g
+
+  rinho-receptor:
+    build: ../rinho-receptor
+    restart: unless-stopped
+    environment:
+      UDP_PORT: ${UDP_PORT}
+      UDP_HOST: 0.0.0.0
+      RECEPTOR_HEALTH_PORT: ${RECEPTOR_HEALTH_PORT}
+      DB_HOST: timescaledb
+      DB_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB}
+      RINHO_RECEPTOR_DB_USER: ${RINHO_RECEPTOR_DB_USER}
+      RINHO_RECEPTOR_DB_PASSWORD: ${RINHO_RECEPTOR_DB_PASSWORD}
+      DEDUP_CACHE_TTL_MS: ${DEDUP_CACHE_TTL_MS}
+      DEVICE_HORA_UTC_OFFSET_HOURS: ${DEVICE_HORA_UTC_OFFSET_HOURS:-0}
+    # Unico puerto publicado al host: el dispositivo real habla por UDP contra este puerto.
+    ports:
+      - "${UDP_PORT}:${UDP_PORT}/udp"
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://127.0.0.1:${RECEPTOR_HEALTH_PORT}/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+
+  agrolink-ingesta:
+    build: ..
+    restart: unless-stopped
+    environment:
+      SERVER_PORT: ${REPORTES_HTTP_PORT}
+      DB_HOST: timescaledb
+      DB_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB}
+      AGROLINK_INGESTA_DB_USER: ${AGROLINK_INGESTA_DB_USER}
+      AGROLINK_INGESTA_DB_PASSWORD: ${AGROLINK_INGESTA_DB_PASSWORD}
+    # NO se publica al host: solo lo consume la red interna de Docker Compose.
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://127.0.0.1:${REPORTES_HTTP_PORT}/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      # Arranque en frio de la JVM en 2 OCPU compartidos: mas margen que el resto.
+      start_period: 120s
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+
+volumes:
+  timescaledb-data:

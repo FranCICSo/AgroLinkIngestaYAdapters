@@ -1,0 +1,17 @@
+{
+  "name": "rinho-receptor",
+  "version": "1.0.0",
+  "description": "Receptor y parser propio del protocolo Rinho Spider IoT (reporte EQ) por UDP.",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test test/**/*.test.js"
+  },
+  "dependencies": {
+    "pg": "^8.13.0"
+  }
+}

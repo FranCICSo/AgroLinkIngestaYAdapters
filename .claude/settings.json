@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(kubectl kustomize *)",
+      "Bash(kubectl get *)",
+      "Bash(kubectl config view *)",
+      "Bash(kubectl config current-context)",
+      "Bash(aws sts get-caller-identity)"
+    ]
+  }
+}
