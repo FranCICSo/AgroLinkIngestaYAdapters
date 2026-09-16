@@ -1,0 +1,11 @@
+target/
+*.class
+.git/
+.gitignore
+Dockerfile
+.dockerignore
+*.log
+.idea/
+*.iml
+.DS_Store
+deploy/.env

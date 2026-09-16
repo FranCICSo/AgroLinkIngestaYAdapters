@@ -9,7 +9,7 @@ public record ReporteViajeDto(
         String camionId,
         OffsetDateTime desde,
         OffsetDateTime hasta,
-        long distanciaM,
+        double distanciaKm,
         Double combustibleConsumidoPct,
         Double tasaConsumoPromedio,
         boolean tasaConsumoPromedioNoCalculable,

@@ -55,6 +55,29 @@ List — abrir solo la (a) no alcanza. `vm-setup.sh` abre esta capa automáticam
 > sudo iptables -L INPUT -n | grep 5000
 > ```
 
+### 2.2b Abrir el puerto de la consulta de estado de vehículo (feature 002)
+
+`agrolink-ingesta` publica un segundo puerto, dedicado exclusivamente a
+`GET /api/v1/vehiculos/{dispositivoId}/estado` (`VEHICULO_ESTADO_HTTP_PORT`, research.md
+D-01 de la feature 002). El puerto de reportes (`REPORTES_HTTP_PORT`) sigue **sin**
+publicarse — esta regla es solo para el puerto nuevo.
+
+Mismas dos capas que en §2.2, pero en **TCP**:
+
+**a) Security List (o NSG) de la VCN**: **Add Ingress Rules** con **Source CIDR**
+`0.0.0.0/0` (o el rango de red de AgroLinkBackend, si se conoce), **IP Protocol** **TCP**,
+**Destination Port Range** `8082` (o el valor de `VEHICULO_ESTADO_HTTP_PORT` en `.env`).
+
+**b) Firewall del sistema operativo dentro de la VM**:
+
+```bash
+sudo iptables -I INPUT -p tcp --dport 8082 -j ACCEPT
+sudo netfilter-persistent save   # si está disponible
+```
+
+Verificar con `docker compose ps`: `agrolink-ingesta` debe listar **ese** puerto en
+`PORTS`, y ningún puerto correspondiente a `REPORTES_HTTP_PORT`.
+
 ### 2.3 Contraseñas — de dónde salen
 
 **No salen de ningún lado: las generás vos**, antes del primer `docker compose up`. No hay
@@ -126,6 +149,21 @@ docker compose down
 docker volume rm deploy_timescaledb-data   # ⚠️ destruye todos los datos persistidos
 docker compose up -d
 ```
+
+> **Migración manual (feature 005, `odometro_m` → `odometro_km`)**: si el volumen ya
+> estaba inicializado antes de esta feature, `01-schema.sql` no se vuelve a correr (solo
+> aplica a volúmenes vacíos), así que hay que aplicar el cambio a mano, conectado como
+> `postgres` o como `agrolink_ingesta`:
+>
+> ```sql
+> ALTER TABLE telemetria.lectura_telemetria
+>     RENAME COLUMN odometro_m TO odometro_km;
+> ALTER TABLE telemetria.lectura_telemetria
+>     ALTER COLUMN odometro_km TYPE DOUBLE PRECISION USING odometro_km / 1000.0;
+> ```
+>
+> Ver `specs/005-odometer-storage-km/research.md` (D-04) para el detalle de por qué no
+> hay un mecanismo de migración automático (el proyecto no usa Flyway/Liquibase).
 
 ### 2.6 Verificar
 

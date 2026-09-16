@@ -152,14 +152,14 @@ Va después de la sección GPS, separada por `;`. Formato: pares `ID=VALOR` sepa
 
 | ID | Significado | Unidad | Destino (D-04) |
 |----|-------------|--------|----------------|
-| `1` | VIN | — | ⛔ **descartado** (Principio V) |
-| `2` | RPM de motor | rpm | `datos_can` |
-| `3` | Velocidad de rueda | km/h | `datos_can` |
+| `1` | VIN | — | → `vin` (feature 003; string opaco, nunca convertido a número) |
+| `2` | RPM de motor | rpm | → `rpm` (feature 003) |
+| `3` | Velocidad de rueda | km/h | `datos_can` — único identificador soportado sin columna propia (feature 003, Clarifications) |
 | `B` | **Odómetro total del ECU** | **km** | → `odometro_m` **× 1000**, origen `ECU` |
-| `14` | Combustible consumido | L | `datos_can` |
+| `14` | Combustible consumido | L | → `combustible_consumido_l` (feature 003; unidad confirmada: litros) |
 | `15` | **Nivel de combustible** | **%** | → `combustible_pct` |
-| `2A` | Temperatura de refrigerante | °C | `datos_can` |
-| `2C` | Presión de aceite | kPa | `datos_can` |
+| `2A` | Temperatura de refrigerante | °C | → `temperatura_refrigerante_c` (feature 003) |
+| `2C` | Presión de aceite | kPa | → `presion_aceite_kpa` (feature 003) |
 
 > ⚠️ **Incompatibilidad con el código de referencia**: `canJsonTransform` de
 > `../rinho-udp-server` parsea la variante **ER / J1939** (vehículo pesado), cuyos IDs son de
@@ -259,14 +259,14 @@ Sección CAN:
 
 | ID | Raw | Interpretación | Destino |
 |----|-----|----------------|---------|
-| `1` | `1M8GDM9A_KP042788` | VIN | ⛔ **descartado** (Principio V) |
-| `2` | `2200` | 2200 rpm | `datos_can` |
+| `1` | `1M8GDM9A_KP042788` | VIN | → `vin` (feature 003) |
+| `2` | `2200` | 2200 rpm | → `rpm` (feature 003) |
 | `3` | `45` | 45 km/h de rueda | `datos_can` |
 | `B` | `66010` | **66 010 km** | → `odometro_m` = 66 010 000, origen `ECU` |
-| `14` | `30000` | combustible consumido (unidad dudosa) | `datos_can` |
+| `14` | `30000` | combustible consumido, en litros (feature 003) | → `combustible_consumido_l` |
 | `15` | `75` | **75 % de tanque** | → `combustible_pct` |
-| `2A` | `90` | 90 °C refrigerante | `datos_can` |
-| `2C` | `340` | 340 kPa presión de aceite | `datos_can` |
+| `2A` | `90` | 90 °C refrigerante | → `temperatura_refrigerante_c` (feature 003) |
+| `2C` | `340` | 340 kPa presión de aceite | → `presion_aceite_kpa` (feature 003) |
 
 ### ⚠️ Discrepancias detectadas — leer antes de implementar
 
@@ -293,13 +293,20 @@ como prueba de coherencia semántica:
 
 **(c) El VIN no es numérico**: `1M8GDM9A_KP042788` es alfanumérico con guion bajo. El parser
 de la sección CAN **no debe** convertir valores a número al leerlos: los trata como strings
-opacos y recién el mapper decide tipo por ID. Convertir a número daría `NaN` y podría
-enmascarar el descarte del VIN que exige el Principio V.
+opacos y recién el mapper decide tipo por ID. Convertir a número daría `NaN` y corrompería
+el campo `vin` (feature 003). *(Corrección: este documento afirmaba antes que el VIN se
+descartaba por "Principio V" — esa cita era una interpretación demasiado amplia de esa
+regla, que protege datos personales de choferes, no identificadores de vehículo. Desde la
+feature 003 el VIN se persiste y se expone; la regla que sigue vigente es la de este
+párrafo: nunca convertirlo a número.)*
 
 **(d) `14=30000`** como litros consumidos es implausible para un camión; probablemente esté
-en decilitros, mililitros o sea un contador acumulado. Como va a `datos_can` sin promoverse
-a columna de dominio, no bloquea nada, pero **no debe usarse para ningún cálculo** hasta
-confirmar la unidad.
+en decilitros, mililitros o sea un contador acumulado — o esta trama de ejemplo en
+particular sea sintética (ver discrepancia (b)). La unidad ya está confirmada como litros
+(feature 003, spec Clarifications) y el valor se persiste en `combustible_consumido_l` sin
+conversión; el valor de esta trama de ejemplo puntual sigue siendo alto para el tipo de
+vehículo observado, algo a tener en cuenta al interpretar datos históricos, pero ya no un
+bloqueo de unidad.
 
 ---
 
