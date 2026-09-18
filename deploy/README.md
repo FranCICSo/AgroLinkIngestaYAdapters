@@ -194,6 +194,16 @@ Diferencias con la VM:
 - El dispositivo real, al estar en otra red, no puede alcanzar un stack corriendo solo en
   `localhost` — para probar contra hardware real hace falta la VM (o un túnel).
 
+### 2.7.1 Datos de telemetría de ejemplo (`make seed-telemetry`)
+
+Para no tener que enviar tramas UDP reales solo para ejercitar los endpoints de lectura,
+`make seed-telemetry` inserta dos lecturas reales ya observadas del dispositivo
+`860693084873877` directamente en `lectura_telemetria` (ver
+`specs/006-seed-lectura-telemetria/`). Es idempotente (se puede correr varias veces sin
+duplicar filas) y usa el rol `rinho_receptor` — el script vive en `deploy/seed/`, nunca en
+`deploy/db/`, así que nunca se ejecuta automáticamente ni en el stack local ni en la VM de
+producción; hay que invocarlo a mano.
+
 ## 3. Reinicio sin pérdida de datos (T020) — ✅ verificado
 
 `docker compose restart <servicio>` deja cada contenedor `healthy` de nuevo sin perder
