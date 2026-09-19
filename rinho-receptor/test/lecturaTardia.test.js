@@ -29,7 +29,7 @@ function lecturaFixture(dispositivoId, momentoEvento, marcador) {
     longitud: -64.26,
     velocidadKmh: 42,
     rumboGrados: 90,
-    odometroM: 1000,
+    odometroKm: 1000,
     odometroOrigen: 'GPS',
     combustiblePct: 50,
     ignicion: true,

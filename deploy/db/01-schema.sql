@@ -13,9 +13,16 @@ CREATE TABLE telemetria.lectura_telemetria (
     longitud                NUMERIC(9,6),
     velocidad_kmh           NUMERIC(5,1),
     rumbo_grados            SMALLINT,
-    odometro_m              BIGINT,
+    -- En kilometros desde la feature 005 (antes odometro_m, en metros). Migracion manual
+    -- para un volumen ya inicializado: specs/005-odometer-storage-km/research.md (D-04).
+    odometro_km             DOUBLE PRECISION,
     odometro_origen         VARCHAR(3)      CHECK (odometro_origen IN ('ECU', 'GPS')),
     combustible_pct         NUMERIC(5,2),
+    vin                     VARCHAR(20),
+    rpm                     SMALLINT,
+    combustible_consumido_l NUMERIC(10,2),
+    temperatura_refrigerante_c SMALLINT,
+    presion_aceite_kpa      SMALLINT,
     ignicion                BOOLEAN,
     tension_bateria_v       NUMERIC(4,1),
     satelites               SMALLINT,

@@ -59,12 +59,17 @@ services:
     restart: unless-stopped
     environment:
       SERVER_PORT: ${REPORTES_HTTP_PORT}
+      VEHICULO_ESTADO_HTTP_PORT: ${VEHICULO_ESTADO_HTTP_PORT}
       DB_HOST: timescaledb
       DB_PORT: 5432
       POSTGRES_DB: ${POSTGRES_DB}
       AGROLINK_INGESTA_DB_USER: ${AGROLINK_INGESTA_DB_USER}
       AGROLINK_INGESTA_DB_PASSWORD: ${AGROLINK_INGESTA_DB_PASSWORD}
-    # NO se publica al host: solo lo consume la red interna de Docker Compose.
+    # Unico puerto publicado de este servicio: la consulta de estado de vehiculo (FR-011).
+    # REPORTES_HTTP_PORT sigue sin publicarse -solo lo consume la red interna del compose,
+    # sin cambios respecto de antes de la feature 002 (research.md D-01).
+    ports:
+      - "${VEHICULO_ESTADO_HTTP_PORT}:${VEHICULO_ESTADO_HTTP_PORT}"
     depends_on:
       timescaledb:
         condition: service_healthy

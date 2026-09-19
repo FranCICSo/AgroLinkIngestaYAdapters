@@ -29,7 +29,7 @@ class ReporteViajeServiceTest {
     // Construye una LecturaTelemetria via reflection: la entidad no tiene constructor
     // publico (es @Immutable, de solo lectura por JPA) y no necesita uno para produccion.
     private static LecturaTelemetria lectura(
-            long id, Instant momentoEvento, Double velocidadKmh, Long odometroM,
+            long id, Instant momentoEvento, Double velocidadKmh, Double odometroKm,
             OrigenOdometro odometroOrigen, Double combustiblePct) {
         try {
             var constructor = LecturaTelemetria.class.getDeclaredConstructor();
@@ -39,7 +39,7 @@ class ReporteViajeServiceTest {
             set(l, "dispositivoId", "2326");
             set(l, "momentoEvento", momentoEvento);
             set(l, "velocidadKmh", velocidadKmh);
-            set(l, "odometroM", odometroM);
+            set(l, "odometroKm", odometroKm);
             set(l, "odometroOrigen", odometroOrigen);
             set(l, "combustiblePct", combustiblePct);
             return l;
@@ -70,9 +70,9 @@ class ReporteViajeServiceTest {
     void cincoMetricas_sobreConjuntoConocido() {
         List<LecturaTelemetria> lecturas =
                 List.of(
-                        lectura(1, Instant.parse("2026-08-15T08:00:00Z"), 50.0, 100_000L, OrigenOdometro.GPS, 80.0),
-                        lectura(2, Instant.parse("2026-08-15T10:00:00Z"), 90.0, 150_000L, OrigenOdometro.GPS, 60.0),
-                        lectura(3, Instant.parse("2026-08-15T12:00:00Z"), 70.0, 200_000L, OrigenOdometro.GPS, 50.0));
+                        lectura(1, Instant.parse("2026-08-15T08:00:00Z"), 50.0, 100.0, OrigenOdometro.GPS, 80.0),
+                        lectura(2, Instant.parse("2026-08-15T10:00:00Z"), 90.0, 150.0, OrigenOdometro.GPS, 60.0),
+                        lectura(3, Instant.parse("2026-08-15T12:00:00Z"), 70.0, 200.0, OrigenOdometro.GPS, 50.0));
         when(repository.findByDispositivoIdAndMomentoEventoBetweenOrderByMomentoEventoAsc(
                         anyString(), any(), any()))
                 .thenReturn(lecturas);
@@ -80,9 +80,9 @@ class ReporteViajeServiceTest {
         ReporteViajeService service = new ReporteViajeService(repository);
         ReporteViajeDto dto = service.calcular("2326", DESDE, HASTA);
 
-        assertThat(dto.distanciaM()).isEqualTo(100_000L); // 200000 - 100000, en metros
+        assertThat(dto.distanciaKm()).isEqualTo(100.0); // 200 - 100, en kilometros
         assertThat(dto.combustibleConsumidoPct()).isEqualTo(30.0); // 80 - 50
-        assertThat(dto.tasaConsumoPromedio()).isEqualTo(30.0 / (100_000L / 1000.0));
+        assertThat(dto.tasaConsumoPromedio()).isEqualTo(30.0 / 100.0);
         assertThat(dto.tasaConsumoPromedioNoCalculable()).isFalse();
         assertThat(dto.velocidadPromedioKmh()).isEqualTo((50.0 + 90.0 + 70.0) / 3);
         assertThat(dto.velocidadMaximaKmh()).isEqualTo(90.0);
@@ -93,14 +93,14 @@ class ReporteViajeServiceTest {
     @Test
     void unaSolaLectura_distanciaYCombustibleCero_tasaNull() {
         List<LecturaTelemetria> lecturas =
-                List.of(lectura(1, Instant.parse("2026-08-15T08:00:00Z"), 50.0, 100_000L, OrigenOdometro.GPS, 80.0));
+                List.of(lectura(1, Instant.parse("2026-08-15T08:00:00Z"), 50.0, 100.0, OrigenOdometro.GPS, 80.0));
         when(repository.findByDispositivoIdAndMomentoEventoBetweenOrderByMomentoEventoAsc(
                         anyString(), any(), any()))
                 .thenReturn(lecturas);
 
         ReporteViajeDto dto = new ReporteViajeService(repository).calcular("2326", DESDE, HASTA);
 
-        assertThat(dto.distanciaM()).isZero();
+        assertThat(dto.distanciaKm()).isZero();
         assertThat(dto.combustibleConsumidoPct()).isZero();
         assertThat(dto.tasaConsumoPromedio()).isNull();
         assertThat(dto.tasaConsumoPromedioNoCalculable()).isTrue();
@@ -110,15 +110,15 @@ class ReporteViajeServiceTest {
     void distanciaCero_conLecturasPresentes_tasaNullYFlagTrue() {
         List<LecturaTelemetria> lecturas =
                 List.of(
-                        lectura(1, Instant.parse("2026-08-15T08:00:00Z"), 0.0, 100_000L, OrigenOdometro.GPS, 80.0),
-                        lectura(2, Instant.parse("2026-08-15T09:00:00Z"), 0.0, 100_000L, OrigenOdometro.GPS, 79.0));
+                        lectura(1, Instant.parse("2026-08-15T08:00:00Z"), 0.0, 100.0, OrigenOdometro.GPS, 80.0),
+                        lectura(2, Instant.parse("2026-08-15T09:00:00Z"), 0.0, 100.0, OrigenOdometro.GPS, 79.0));
         when(repository.findByDispositivoIdAndMomentoEventoBetweenOrderByMomentoEventoAsc(
                         anyString(), any(), any()))
                 .thenReturn(lecturas);
 
         ReporteViajeDto dto = new ReporteViajeService(repository).calcular("2326", DESDE, HASTA);
 
-        assertThat(dto.distanciaM()).isZero();
+        assertThat(dto.distanciaKm()).isZero();
         assertThat(dto.tasaConsumoPromedio()).isNull();
         assertThat(dto.tasaConsumoPromedioNoCalculable()).isTrue();
     }
@@ -127,8 +127,8 @@ class ReporteViajeServiceTest {
     void ningunaLecturaConCombustible_combustibleNullYTasaNull() {
         List<LecturaTelemetria> lecturas =
                 List.of(
-                        lectura(1, Instant.parse("2026-08-15T08:00:00Z"), 50.0, 100_000L, OrigenOdometro.GPS, null),
-                        lectura(2, Instant.parse("2026-08-15T09:00:00Z"), 60.0, 150_000L, OrigenOdometro.GPS, null));
+                        lectura(1, Instant.parse("2026-08-15T08:00:00Z"), 50.0, 100.0, OrigenOdometro.GPS, null),
+                        lectura(2, Instant.parse("2026-08-15T09:00:00Z"), 60.0, 150.0, OrigenOdometro.GPS, null));
         when(repository.findByDispositivoIdAndMomentoEventoBetweenOrderByMomentoEventoAsc(
                         anyString(), any(), any()))
                 .thenReturn(lecturas);
@@ -145,8 +145,8 @@ class ReporteViajeServiceTest {
         // Recarga dentro del rango: la ultima lectura tiene MAS combustible que la primera.
         List<LecturaTelemetria> lecturas =
                 List.of(
-                        lectura(1, Instant.parse("2026-08-15T08:00:00Z"), 50.0, 100_000L, OrigenOdometro.GPS, 20.0),
-                        lectura(2, Instant.parse("2026-08-15T09:00:00Z"), 50.0, 110_000L, OrigenOdometro.GPS, 90.0));
+                        lectura(1, Instant.parse("2026-08-15T08:00:00Z"), 50.0, 100.0, OrigenOdometro.GPS, 20.0),
+                        lectura(2, Instant.parse("2026-08-15T09:00:00Z"), 50.0, 110.0, OrigenOdometro.GPS, 90.0));
         when(repository.findByDispositivoIdAndMomentoEventoBetweenOrderByMomentoEventoAsc(
                         anyString(), any(), any()))
                 .thenReturn(lecturas);
@@ -161,8 +161,8 @@ class ReporteViajeServiceTest {
     void odometroOrigenMixto_true_cuandoElRangoCombinaEcuYGps() {
         List<LecturaTelemetria> lecturas =
                 List.of(
-                        lectura(1, Instant.parse("2026-08-15T08:00:00Z"), 50.0, 100_000L, OrigenOdometro.GPS, 80.0),
-                        lectura(2, Instant.parse("2026-08-15T09:00:00Z"), 50.0, 66_010_000L, OrigenOdometro.ECU, 75.0));
+                        lectura(1, Instant.parse("2026-08-15T08:00:00Z"), 50.0, 100.0, OrigenOdometro.GPS, 80.0),
+                        lectura(2, Instant.parse("2026-08-15T09:00:00Z"), 50.0, 66010.0, OrigenOdometro.ECU, 75.0));
         when(repository.findByDispositivoIdAndMomentoEventoBetweenOrderByMomentoEventoAsc(
                         anyString(), any(), any()))
                 .thenReturn(lecturas);
@@ -176,8 +176,8 @@ class ReporteViajeServiceTest {
     void odometroOrigenMixto_false_cuandoTodasSonDelMismoOrigen() {
         List<LecturaTelemetria> lecturas =
                 List.of(
-                        lectura(1, Instant.parse("2026-08-15T08:00:00Z"), 50.0, 66_000_000L, OrigenOdometro.ECU, 80.0),
-                        lectura(2, Instant.parse("2026-08-15T09:00:00Z"), 50.0, 66_010_000L, OrigenOdometro.ECU, 75.0));
+                        lectura(1, Instant.parse("2026-08-15T08:00:00Z"), 50.0, 66000.0, OrigenOdometro.ECU, 80.0),
+                        lectura(2, Instant.parse("2026-08-15T09:00:00Z"), 50.0, 66010.0, OrigenOdometro.ECU, 75.0));
         when(repository.findByDispositivoIdAndMomentoEventoBetweenOrderByMomentoEventoAsc(
                         anyString(), any(), any()))
                 .thenReturn(lecturas);

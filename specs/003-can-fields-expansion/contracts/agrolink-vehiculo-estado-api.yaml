@@ -1,0 +1,275 @@
+openapi: 3.1.0
+
+info:
+  title: AgroLink Ingesta y Adaptación — API de Estado de Vehículo
+  version: 3.0.0
+  description: |
+    Contrato HTTP de salida del servicio AgroLinkIngestaYAdaptacion (Spring Boot) para
+    consultar el estado más reciente de un vehículo por su identificador de dispositivo
+    IoT.
+
+    Reemplaza a la versión 2.0.0 de este mismo contrato (feature 003, previa a la sesión
+    de clarificación del 2026-09-13). Cambios de esta versión:
+    - `canBus` gana `vin` y `rpm` (antes solo `rpm` se leía a demanda; ahora ambos tienen
+      columna propia, igual que `combustibleConsumidoL`).
+    - `canBus` gana `tensionBateriaV`, **reubicado** desde `dispositivo` (cambio de
+      ruptura deliberado — ver más abajo).
+    - `dispositivo` **pierde** `tensionBateriaV`.
+
+    El VIN nunca se convierte a número (es alfanumérico); se expone tal como lo reporta el
+    vehículo. Ya no se descarta (spec 003, Clarifications, sesión 2026-09-13): la cita
+    previa a "Principio V" para descartarlo era una interpretación demasiado amplia de esa
+    regla (protege datos personales de choferes, no identificadores de vehículo).
+
+    **Cambio de ruptura aceptado**: cualquier consumidor que hoy lea `dispositivo.tensionBateriaV`
+    debe migrar a `canBus.tensionBateriaV`. No se mantiene el campo duplicado en ambos
+    bloques (spec, Assumptions).
+
+    Feature: 003-can-fields-expansion
+
+servers:
+  - url: http://localhost:${VEHICULO_ESTADO_HTTP_PORT}
+    description: Puerto publicado al host, dedicado exclusivamente a esta API (feature 002, research.md D-01)
+    variables:
+      VEHICULO_ESTADO_HTTP_PORT:
+        default: '8082'
+
+paths:
+  /api/v1/vehiculos/{dispositivoId}/estado:
+    get:
+      summary: Estado más reciente de un vehículo (posición, CAN bus, dispositivo)
+      description: |
+        Devuelve un único objeto derivado de la lectura de telemetría con `momento_evento`
+        más reciente para el identificador de dispositivo dado (FR-002, FR-006, feature 002).
+        No agrega ni promedia varias lecturas.
+
+        **Semántica de "no encontrado"**: sin cambios respecto de la feature 002 — un
+        identificador desconocido y uno sin lecturas registradas devuelven **404**.
+
+        **Semántica de "no informado" dentro de `canBus`** (FR-010, feature 003): cualquiera
+        de los nueve campos puede venir `null` si el vehículo no reportó ese sensor en la
+        lectura usada para responder. Un `null` nunca significa "el valor es cero" (SC-004).
+      operationId: obtenerEstadoVehiculo
+      parameters:
+        - name: dispositivoId
+          in: path
+          required: true
+          description: |
+            Identificador de dispositivo IoT (equivalente a `Vehicle.iotDeviceId` en
+            AgroLinkBackend y a `dispositivo_id` en telemetría). No es la patente.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 20
+          example: '2326'
+      responses:
+        '200':
+          description: Estado más reciente conocido del vehículo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EstadoVehiculo'
+              examples:
+                lecturaCompleta:
+                  summary: Lectura con fix GPS y los nueve valores de canBus presentes
+                  value:
+                    posicion:
+                      latitud: -34.603722
+                      longitud: -58.381592
+                      velocidadKmh: 62.4
+                      rumboGrados: 184
+                    canBus:
+                      vin: '1M8GDM9A_KP042788'
+                      rpm: 2200
+                      velocidadRuedaKmh: 45
+                      odometroM: 66010000
+                      odometroOrigen: ECU
+                      combustibleConsumidoL: 30000.0
+                      combustiblePct: 75.0
+                      temperaturaRefrigeranteC: 90
+                      presionAceiteKpa: 340
+                      tensionBateriaV: 13.2
+                    dispositivo:
+                      dispositivoId: '2326'
+                      momentoEvento: '2026-09-09T18:42:10-03:00'
+                      momentoRecepcion: '2026-09-09T18:42:11-03:00'
+                      ignicion: true
+                      satelites: 9
+                      estadoInterpretacion: COMPLETA
+                      camposFaltantes: []
+                lecturaParcial:
+                  summary: Lectura sin fix GPS y sin ningún dato CAN reportado
+                  value:
+                    posicion:
+                      latitud: null
+                      longitud: null
+                      velocidadKmh: null
+                      rumboGrados: null
+                    canBus:
+                      vin: null
+                      rpm: null
+                      velocidadRuedaKmh: null
+                      odometroM: null
+                      odometroOrigen: null
+                      combustibleConsumidoL: null
+                      combustiblePct: null
+                      temperaturaRefrigeranteC: null
+                      presionAceiteKpa: null
+                      tensionBateriaV: null
+                    dispositivo:
+                      dispositivoId: '2326'
+                      momentoEvento: '2026-09-09T18:45:00-03:00'
+                      momentoRecepcion: '2026-09-09T18:45:01-03:00'
+                      ignicion: null
+                      satelites: 0
+                      estadoInterpretacion: PARCIAL
+                      camposFaltantes: ['latitud', 'longitud', 'combustiblePct']
+        '400':
+          description: El identificador de dispositivo está vacío o es inválido (feature 002, FR-009).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: 'about:blank'
+                title: 'Parámetro inválido'
+                status: 400
+                detail: "El identificador de dispositivo no puede estar vacío."
+        '404':
+          description: No hay ninguna lectura de telemetría para ese identificador de dispositivo (feature 002).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: 'about:blank'
+                title: 'Vehículo sin telemetría'
+                status: 404
+                detail: "No hay lecturas de telemetria para el dispositivo 'XYZ999'."
+                dispositivoId: 'XYZ999'
+
+components:
+  schemas:
+
+    EstadoVehiculo:
+      type: object
+      required: [posicion, canBus, dispositivo]
+      properties:
+        posicion:
+          $ref: '#/components/schemas/Posicion'
+        canBus:
+          $ref: '#/components/schemas/CanBus'
+        dispositivo:
+          $ref: '#/components/schemas/DispositivoInfo'
+
+    Posicion:
+      type: object
+      description: Sin cambios respecto de la feature 002. Nulo campo a campo cuando la lectura más reciente no tenía fix GPS.
+      properties:
+        latitud:
+          type: [number, 'null']
+          example: -34.603722
+        longitud:
+          type: [number, 'null']
+          example: -58.381592
+        velocidadKmh:
+          type: [number, 'null']
+          description: Velocidad reportada por GPS (distinta de `canBus.velocidadRuedaKmh`, que viene del CAN bus).
+          example: 62.4
+        rumboGrados:
+          type: [integer, 'null']
+          example: 184
+
+    CanBus:
+      type: object
+      description: |
+        Reestructurado en la feature 003. Ya no incluye `datosCanCrudos`. Incluye los
+        nueve valores CAN/vehículo soportados; cualquier campo puede ser `null` de forma
+        independiente ("no informado"). `tensionBateriaV` está aquí (no en `dispositivo`)
+        desde la sesión de clarificación del 2026-09-13.
+      properties:
+        vin:
+          type: [string, 'null']
+          description: VIN del vehículo (CAN id `1`), columna propia desde esta feature. Nunca se convierte a número.
+          example: '1M8GDM9A_KP042788'
+        rpm:
+          type: [integer, 'null']
+          description: RPM de motor (CAN id `2`), columna propia desde esta feature.
+          example: 2200
+        velocidadRuedaKmh:
+          type: [integer, 'null']
+          description: Velocidad de rueda reportada por el CAN bus (CAN id `3`), leída a demanda desde `datos_can` — es el único de los nueve valores sin columna propia.
+          example: 45
+        odometroM:
+          type: [integer, 'null']
+          description: Odómetro en metros, cualquiera sea su origen (ver `odometroOrigen`). Sin cambios respecto de la feature 002.
+          example: 66010000
+        odometroOrigen:
+          type: [string, 'null']
+          enum: [ECU, GPS, null]
+        combustibleConsumidoL:
+          type: [number, 'null']
+          description: Combustible consumido (CAN id `14`), columna propia, en litros.
+          example: 30000.0
+        combustiblePct:
+          type: [number, 'null']
+          description: Sin cambios respecto de la feature 002.
+          example: 75.0
+        temperaturaRefrigeranteC:
+          type: [integer, 'null']
+          description: Temperatura de refrigerante en °C (CAN id `2A`), columna propia.
+          example: 90
+        presionAceiteKpa:
+          type: [integer, 'null']
+          description: Presión de aceite en kPa (CAN id `2C`), columna propia.
+          example: 340
+        tensionBateriaV:
+          type: [number, 'null']
+          description: |
+            Tensión de batería del vehículo, en voltios. Reubicado desde `dispositivo`
+            (spec, Clarifications, sesión 2026-09-13) — ya no aparece en ese bloque.
+          example: 13.2
+
+    DispositivoInfo:
+      type: object
+      description: |
+        Ya no incluye `tensionBateriaV` (reubicado a `canBus` — ver descripción de ese
+        schema). El resto de los campos no cambia respecto de la feature 002.
+      required: [dispositivoId, momentoEvento, momentoRecepcion, estadoInterpretacion, camposFaltantes]
+      properties:
+        dispositivoId:
+          type: string
+          example: '2326'
+        momentoEvento:
+          type: string
+          format: date-time
+        momentoRecepcion:
+          type: string
+          format: date-time
+        ignicion:
+          type: [boolean, 'null']
+        satelites:
+          type: [integer, 'null']
+          example: 9
+        estadoInterpretacion:
+          type: string
+          enum: [COMPLETA, PARCIAL]
+        camposFaltantes:
+          type: array
+          items:
+            type: string
+
+    Problem:
+      type: object
+      required: [type, title, status]
+      properties:
+        type:
+          type: string
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        dispositivoId:
+          type: string

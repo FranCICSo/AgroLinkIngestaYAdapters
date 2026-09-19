@@ -2,6 +2,7 @@ package ar.utn.agrolink.ingesta.telemetry;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import org.springframework.data.repository.Repository;
 
 /**
@@ -13,4 +14,8 @@ public interface LecturaTelemetriaRepository extends Repository<LecturaTelemetri
 
     List<LecturaTelemetria> findByDispositivoIdAndMomentoEventoBetweenOrderByMomentoEventoAsc(
             String dispositivoId, Instant desde, Instant hasta);
+
+    // Reutiliza el indice lectura_camion_tiempo_idx (dispositivo_id, momento_evento DESC) de
+    // la feature 001: sin migraciones nuevas (data-model.md, feature 002).
+    Optional<LecturaTelemetria> findFirstByDispositivoIdOrderByMomentoEventoDesc(String dispositivoId);
 }

@@ -13,8 +13,18 @@ const CAN_COMBUSTIBLE_PCT = '15';
 const CAN_TEMP_REFRIGERANTE = '2A';
 const CAN_PRESION_ACEITE = '2C';
 
-// Los que quedan en columnas propias no se duplican en datos_can (D-04).
-const CAN_IDS_PROMOVIDOS = new Set([CAN_VIN, CAN_ODOMETRO_ECU_KM, CAN_COMBUSTIBLE_PCT]);
+// Los que quedan en columnas propias no se duplican en datos_can (D-04). Velocidad de
+// rueda (CAN_VELOCIDAD_RUEDA) es el unico identificador soportado que NO se promueve
+// (spec 003, Clarifications): sigue viajando solo dentro de datos_can.
+const CAN_IDS_PROMOVIDOS = new Set([
+  CAN_VIN,
+  CAN_RPM,
+  CAN_ODOMETRO_ECU_KM,
+  CAN_COMBUSTIBLE_CONSUMIDO,
+  CAN_COMBUSTIBLE_PCT,
+  CAN_TEMP_REFRIGERANTE,
+  CAN_PRESION_ACEITE,
+]);
 
 function isValidLatitud(v) {
   return v >= -90 && v <= 90;
@@ -52,11 +62,13 @@ function resolveOdometro(gps, can, camposFaltantes) {
   if (ecuKmRaw !== undefined && ecuKmRaw !== '') {
     const km = Number(ecuKmRaw);
     if (!Number.isNaN(km)) {
-      return { odometroM: Math.round(km * 1000), odometroOrigen: 'ECU' };
+      // El ECU ya reporta en km (feature 005, research.md D-01/D-02): sin conversion.
+      return { odometroKm: km, odometroOrigen: 'ECU' };
     }
   }
-  // Fallback: campo GPS, ya en metros (D-05). No mezclar unidades: ECU en km, GPS en metros.
-  return { odometroM: gps.odometroGpsM, odometroOrigen: 'GPS' };
+  // Fallback: campo GPS, nativamente en metros. Se convierte a km, la unidad de
+  // almacenamiento (feature 005). No mezclar unidades entre origenes.
+  return { odometroKm: gps.odometroGpsM / 1000, odometroOrigen: 'GPS' };
 }
 
 function resolveCombustiblePct(can, camposFaltantes) {
@@ -73,10 +85,82 @@ function resolveCombustiblePct(can, camposFaltantes) {
   return pct;
 }
 
+// El VIN es alfanumerico (p. ej. "1M8GDM9A_KP042788"): nunca se convierte a numero, se
+// trata como string opaco (contrato rinho-eq-frame.md, discrepancia (c)). Ya no se
+// descarta (spec 003, Clarifications, sesion 2026-09-13): la cita previa a "Principio V"
+// para descartarlo era una interpretacion demasiado amplia de esa regla (protege datos
+// personales de choferes, no identificadores de vehiculo).
+function resolveVin(can, camposFaltantes) {
+  const raw = can.get(CAN_VIN);
+  if (raw === undefined || raw === '') {
+    camposFaltantes.push('vin');
+    return null;
+  }
+  return raw;
+}
+
+function resolveRpm(can, camposFaltantes) {
+  const raw = can.get(CAN_RPM);
+  if (raw === undefined || raw === '') {
+    camposFaltantes.push('rpm');
+    return null;
+  }
+  const rpm = Number(raw);
+  if (Number.isNaN(rpm)) {
+    camposFaltantes.push('rpm');
+    return null;
+  }
+  return rpm;
+}
+
+// Unidad confirmada en litros (spec 003, Clarifications, sesion 2026-09-13). Sin chequeo
+// de rango: se expone tal como lo reporta el vehiculo (spec, Edge Cases).
+function resolveCombustibleConsumido(can, camposFaltantes) {
+  const raw = can.get(CAN_COMBUSTIBLE_CONSUMIDO);
+  if (raw === undefined || raw === '') {
+    camposFaltantes.push('combustibleConsumidoL');
+    return null;
+  }
+  const litros = Number(raw);
+  if (Number.isNaN(litros)) {
+    camposFaltantes.push('combustibleConsumidoL');
+    return null;
+  }
+  return litros;
+}
+
+function resolveTemperaturaRefrigerante(can, camposFaltantes) {
+  const raw = can.get(CAN_TEMP_REFRIGERANTE);
+  if (raw === undefined || raw === '') {
+    camposFaltantes.push('temperaturaRefrigeranteC');
+    return null;
+  }
+  const temp = Number(raw);
+  if (Number.isNaN(temp)) {
+    camposFaltantes.push('temperaturaRefrigeranteC');
+    return null;
+  }
+  return temp;
+}
+
+function resolvePresionAceite(can, camposFaltantes) {
+  const raw = can.get(CAN_PRESION_ACEITE);
+  if (raw === undefined || raw === '') {
+    camposFaltantes.push('presionAceiteKpa');
+    return null;
+  }
+  const presion = Number(raw);
+  if (Number.isNaN(presion)) {
+    camposFaltantes.push('presionAceiteKpa');
+    return null;
+  }
+  return presion;
+}
+
 function buildDatosCan(can) {
   const datosCan = {};
   for (const [id, value] of can.entries()) {
-    if (CAN_IDS_PROMOVIDOS.has(id)) continue; // VIN descartado; ECU-km y combustible ya en columnas
+    if (CAN_IDS_PROMOVIDOS.has(id)) continue; // ya tienen columna propia (D-04)
     datosCan[id] = value;
   }
   return datosCan;
@@ -105,8 +189,13 @@ export function mapFrameToLectura({ deviceId, gps, can, payloadCrudo, msgNum, ho
     velocidadKmh = null;
   }
 
-  const { odometroM, odometroOrigen } = resolveOdometro(gps, can, camposFaltantes);
+  const { odometroKm, odometroOrigen } = resolveOdometro(gps, can, camposFaltantes);
   const combustiblePct = resolveCombustiblePct(can, camposFaltantes);
+  const vin = resolveVin(can, camposFaltantes);
+  const rpm = resolveRpm(can, camposFaltantes);
+  const combustibleConsumidoL = resolveCombustibleConsumido(can, camposFaltantes);
+  const temperaturaRefrigeranteC = resolveTemperaturaRefrigerante(can, camposFaltantes);
+  const presionAceiteKpa = resolvePresionAceite(can, camposFaltantes);
   const datosCan = buildDatosCan(can);
 
   return {
@@ -116,9 +205,14 @@ export function mapFrameToLectura({ deviceId, gps, can, payloadCrudo, msgNum, ho
     longitud,
     velocidadKmh,
     rumboGrados: gps.rumboGrados,
-    odometroM,
+    odometroKm,
     odometroOrigen,
     combustiblePct,
+    vin,
+    rpm,
+    combustibleConsumidoL,
+    temperaturaRefrigeranteC,
+    presionAceiteKpa,
     ignicion: gps.ignicion,
     tensionBateriaV: gps.tensionBateriaV,
     satelites: gps.satelites,

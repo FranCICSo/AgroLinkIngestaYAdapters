@@ -1,0 +1,260 @@
+openapi: 3.1.0
+
+info:
+  title: AgroLink Ingesta y Adaptación — API de Reportes
+  version: 2.0.0
+  description: |
+    Contrato HTTP de salida del servicio AgroLinkIngestaYAdaptacion (Spring Boot).
+
+    El servicio es de **solo lectura**: no expone ningún endpoint de ingesta. La telemetría
+    entra por UDP al servicio `rinho-receptor`, cuyo contrato está en
+    `rinho-eq-frame.md`.
+
+    Reemplaza a la versión 1.0.0 de este mismo contrato (feature 005). Cambio de esta
+    versión:
+    - `distanciaM` (entero, metros) se **elimina** y se reemplaza por `distanciaKm`
+      (número, kilómetros), porque el odómetro ya se almacena en kilómetros
+      (`lectura_telemetria.odometro_km`, feature 005) y este reporte deja de convertir.
+
+    **Cambio de ruptura aceptado**: cualquier consumidor que hoy lea `distanciaM` debe
+    migrar a `distanciaKm` y dejar de multiplicar/dividir por 1000 de su lado. El resto
+    de las métricas del reporte no cambia.
+
+    Feature: 005-odometer-storage-km
+
+servers:
+  - url: http://agrolink-ingesta:8080
+    description: Red interna de Docker Compose (el puerto NO se publica al host)
+
+paths:
+  /health:
+    get:
+      summary: Liveness del servicio
+      description: |
+        Healthcheck mínimo, sin Spring Boot Actuator (decisión D-12: dependencias mínimas).
+        Lo consume el healthcheck de Docker Compose.
+      operationId: health
+      responses:
+        '200':
+          description: Servicio operativo
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    const: UP
+
+  /api/v1/reportes/viaje:
+    get:
+      summary: Reporte de actividad de un camión en un rango de fechas/horas
+      description: |
+        Calcula a demanda las cinco métricas del reporte de viaje (FR-005, feature 001) a
+        partir de las lecturas de telemetría persistidas. No persiste nada: el reporte es
+        una entidad derivada (spec, Key Entities).
+
+        **Semántica de "sin datos" (FR-006, decisión D-13)**: si no hay ninguna lectura del
+        camión en el rango se devuelve **404**, nunca un 200 con agregados en cero — un
+        reporte todo en cero sería indistinguible de un camión detenido todo el rango.
+      operationId: obtenerReporteViaje
+      parameters:
+        - name: camionId
+          in: query
+          required: true
+          description: Identificador interno del dispositivo/camión (token técnico, no un dato personal).
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 20
+          example: '2326'
+        - name: desde
+          in: query
+          required: true
+          description: Inicio del rango, inclusive (ISO 8601 con offset).
+          schema:
+            type: string
+            format: date-time
+          example: '2026-08-15T00:00:00-03:00'
+        - name: hasta
+          in: query
+          required: true
+          description: Fin del rango, inclusive (ISO 8601 con offset). Debe ser posterior a `desde`.
+          schema:
+            type: string
+            format: date-time
+          example: '2026-08-15T23:59:59-03:00'
+      responses:
+        '200':
+          description: Reporte calculado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReporteViaje'
+              examples:
+                completo:
+                  summary: Rango con datos completos
+                  value:
+                    camionId: '2326'
+                    desde: '2026-08-15T00:00:00-03:00'
+                    hasta: '2026-08-15T23:59:59-03:00'
+                    distanciaKm: 184.3
+                    combustibleConsumidoPct: 23.5
+                    tasaConsumoPromedio: 0.1275
+                    tasaConsumoPromedioNoCalculable: false
+                    velocidadPromedioKmh: 62.4
+                    velocidadMaximaKmh: 94.0
+                    lecturasConsideradas: 412
+                    odometroOrigenMixto: false
+                camionDetenido:
+                  summary: Hay lecturas pero el camión no se movió (FR-005, distancia cero)
+                  value:
+                    camionId: '2326'
+                    desde: '2026-08-15T00:00:00-03:00'
+                    hasta: '2026-08-15T06:00:00-03:00'
+                    distanciaKm: 0.0
+                    combustibleConsumidoPct: 0.0
+                    tasaConsumoPromedio: null
+                    tasaConsumoPromedioNoCalculable: true
+                    velocidadPromedioKmh: 0.0
+                    velocidadMaximaKmh: 0.0
+                    lecturasConsideradas: 87
+                    odometroOrigenMixto: false
+                sinCombustible:
+                  summary: Ninguna lectura del rango trajo nivel de combustible (caso degradado, no error)
+                  value:
+                    camionId: '2326'
+                    desde: '2026-08-15T00:00:00-03:00'
+                    hasta: '2026-08-15T23:59:59-03:00'
+                    distanciaKm: 184.3
+                    combustibleConsumidoPct: null
+                    tasaConsumoPromedio: null
+                    tasaConsumoPromedioNoCalculable: true
+                    velocidadPromedioKmh: 62.4
+                    velocidadMaximaKmh: 94.0
+                    lecturasConsideradas: 412
+                    odometroOrigenMixto: true
+        '400':
+          description: Parámetros inválidos (falta uno, formato incorrecto, o `hasta` <= `desde`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: 'about:blank'
+                title: 'Parámetros inválidos'
+                status: 400
+                detail: "El parámetro 'hasta' debe ser posterior a 'desde'."
+        '404':
+          description: |
+            No existe ninguna lectura para ese camión en ese rango (FR-006).
+            Distinto de un 200 con métricas en cero, que significaría "el camión estuvo quieto".
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: 'about:blank'
+                title: 'Sin datos'
+                status: 404
+                detail: "No hay lecturas de telemetría para el camión '2326' entre 2026-08-15T00:00:00-03:00 y 2026-08-15T23:59:59-03:00."
+                camionId: '2326'
+
+components:
+  schemas:
+
+    ReporteViaje:
+      type: object
+      required:
+        - camionId
+        - desde
+        - hasta
+        - distanciaKm
+        - combustibleConsumidoPct
+        - tasaConsumoPromedio
+        - tasaConsumoPromedioNoCalculable
+        - velocidadPromedioKmh
+        - velocidadMaximaKmh
+        - lecturasConsideradas
+        - odometroOrigenMixto
+      properties:
+        camionId:
+          type: string
+          description: Identificador interno del camión (token técnico, FR-010).
+        desde:
+          type: string
+          format: date-time
+        hasta:
+          type: string
+          format: date-time
+        distanciaKm:
+          type: number
+          description: |
+            Distancia recorrida en **kilómetros**: odómetro de la última lectura menos el
+            de la primera, dentro del rango. Reemplaza a `distanciaM` (feature 005): el
+            dominio ya almacena y calcula el odómetro en kilómetros de punta a punta, sin
+            convertir (ver `odometroOrigenMixto`).
+          example: 184.3
+        combustibleConsumidoPct:
+          type: [number, 'null']
+          description: |
+            Combustible consumido en **puntos porcentuales** de tanque (primera lectura menos
+            última). `null` si ninguna lectura del rango trae nivel de combustible.
+
+            Puede ser **negativo** si hubo una recarga dentro del rango: se devuelve tal cual,
+            sin recortar a cero, porque las recargas están fuera de alcance de esta feature y
+            un negativo es la señal honesta de que ocurrió una.
+          example: 23.5
+        tasaConsumoPromedio:
+          type: [number, 'null']
+          description: |
+            Tasa promedio de consumo en **puntos porcentuales por kilómetro**
+            (`combustibleConsumidoPct / distanciaKm`).
+
+            `null` cuando no es calculable: distancia cero, o sin dato de combustible.
+          example: 0.1275
+        tasaConsumoPromedioNoCalculable:
+          type: boolean
+          description: |
+            `true` cuando `tasaConsumoPromedio` es `null` por no ser calculable en este rango
+            (FR-005). Explicita el porqué del `null` en vez de dejar que el consumidor lo
+            adivine.
+        velocidadPromedioKmh:
+          type: number
+          description: Media de las velocidades no nulas del rango, en km/h.
+          example: 62.4
+        velocidadMaximaKmh:
+          type: number
+          description: Máxima velocidad no nula del rango, en km/h.
+          example: 94.0
+        lecturasConsideradas:
+          type: integer
+          minimum: 1
+          description: Cantidad de lecturas usadas en el cálculo. Siempre >= 1 (si fuera 0 la respuesta sería 404).
+          example: 412
+        odometroOrigenMixto:
+          type: boolean
+          description: |
+            `true` si el rango combina lecturas con odómetro del ECU y del GPS (decisión D-05,
+            feature 001).
+
+            Advertencia, no error: al mezclar dos contadores independientes, `distanciaKm`
+            puede no ser confiable. El valor se entrega igual, pero el consumidor queda
+            avisado en vez de recibir un número silenciosamente incorrecto (Principio IX).
+
+    Problem:
+      type: object
+      description: RFC 9457 Problem Details.
+      required: [title, status]
+      properties:
+        type:
+          type: string
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        camionId:
+          type: string
