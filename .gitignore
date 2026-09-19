@@ -16,3 +16,6 @@ target/
 .DS_Store
 *.swp
 .idea/
+
+# Borradores locales (PR descriptions, notas), nunca se commitean
+.pr-drafts/
