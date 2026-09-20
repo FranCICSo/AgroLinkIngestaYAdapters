@@ -36,12 +36,12 @@ public class ReporteViajeService {
         }
 
         List<LecturaTelemetria> conOdometro =
-                lecturas.stream().filter(l -> l.getOdometroM() != null).toList();
+                lecturas.stream().filter(l -> l.getOdometroKm() != null).toList();
 
-        long distanciaM =
+        double distanciaKm =
                 conOdometro.isEmpty()
-                        ? 0
-                        : conOdometro.get(conOdometro.size() - 1).getOdometroM() - conOdometro.get(0).getOdometroM();
+                        ? 0.0
+                        : conOdometro.get(conOdometro.size() - 1).getOdometroKm() - conOdometro.get(0).getOdometroKm();
 
         List<LecturaTelemetria> conCombustible =
                 lecturas.stream().filter(l -> l.getCombustiblePct() != null).toList();
@@ -54,9 +54,8 @@ public class ReporteViajeService {
                         : conCombustible.get(0).getCombustiblePct()
                                 - conCombustible.get(conCombustible.size() - 1).getCombustiblePct();
 
-        boolean tasaNoCalculable = distanciaM == 0 || combustibleConsumidoPct == null;
-        Double tasaConsumoPromedio =
-                tasaNoCalculable ? null : combustibleConsumidoPct / (distanciaM / 1000.0);
+        boolean tasaNoCalculable = distanciaKm == 0.0 || combustibleConsumidoPct == null;
+        Double tasaConsumoPromedio = tasaNoCalculable ? null : combustibleConsumidoPct / distanciaKm;
 
         double velocidadPromedioKmh =
                 lecturas.stream()
@@ -82,7 +81,7 @@ public class ReporteViajeService {
                 camionId,
                 desde,
                 hasta,
-                distanciaM,
+                distanciaKm,
                 combustibleConsumidoPct,
                 tasaConsumoPromedio,
                 tasaNoCalculable,

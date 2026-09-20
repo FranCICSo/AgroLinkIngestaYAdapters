@@ -69,7 +69,7 @@ class LecturaTelemetriaRepositoryIntegrationTest {
         String sql =
                 """
                 INSERT INTO lectura_telemetria (
-                    dispositivo_id, momento_evento, velocidad_kmh, odometro_m, odometro_origen,
+                    dispositivo_id, momento_evento, velocidad_kmh, odometro_km, odometro_origen,
                     combustible_pct, estado_interpretacion, payload_crudo, frame_hash
                 ) VALUES (?, ?, 42, 1000, 'GPS', 50, 'COMPLETA', ?, ?)
                 """;
