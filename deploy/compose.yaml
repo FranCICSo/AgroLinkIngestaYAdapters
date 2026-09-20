@@ -56,6 +56,12 @@ services:
 
   agrolink-ingesta:
     build: ..
+    # Nombre de contenedor fijo (en vez del default <project>-agrolink-ingesta-1):
+    # el pipeline de CI/CD (feature 007-cicd-deploy-ghcr) referencia este contenedor por
+    # nombre exacto via `docker inspect`/`docker logs` para el healthcheck y el reporte de
+    # fallas, y el nombre por default depende del directorio desde el que se invoque
+    # `docker compose`.
+    container_name: agrolink-ingesta
     restart: unless-stopped
     environment:
       SERVER_PORT: ${REPORTES_HTTP_PORT}

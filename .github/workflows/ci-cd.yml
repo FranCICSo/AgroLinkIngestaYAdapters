@@ -1,0 +1,165 @@
+name: AgroLink Ingesta CI/CD
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+concurrency:
+  group: deploy-agrolink-ingesta
+  cancel-in-progress: false
+
+jobs:
+  # ============================================================================
+  # 1. CI: Ejecución de Tests y Verificación de Compilación
+  # ============================================================================
+  test:
+    name: Unit & Integration Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+
+      - name: Configurar JDK 21 (Eclipse Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'maven'
+
+      - name: Ejecutar Pruebas con Maven
+        run: mvn clean test -B
+
+  # ============================================================================
+  # 2. CD - Build: Construcción de Imagen Docker ARM64 y Push a GHCR
+  # ============================================================================
+  build-and-push:
+    name: Build & Push Docker Image
+    needs: test
+    if: github.ref == 'refs/heads/master' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+
+      - name: Configurar QEMU (Soporte ARM64 para Oracle Ampere A1)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Configurar Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Autenticar en GitHub Container Registry (GHCR)
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extraer Metadata de Docker (Tags y Etiquetas)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest
+            type=sha,prefix=sha-,format=short
+
+      - name: Compilar y Publicar Imagen (linux/arm64)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ============================================================================
+  # 3. CD - Migrate & Deploy: Migraciones de esquema + Despliegue en OCI vía SSH
+  # ============================================================================
+  migrate-and-deploy:
+    name: Migrate DB & Deploy to OCI Compute Instance
+    needs: build-and-push
+    if: github.ref == 'refs/heads/master' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+
+      - name: Copiar migraciones y scripts de deploy a la instancia de OCI
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.OCI_HOST }}
+          username: ${{ secrets.OCI_USERNAME }}
+          key: ${{ secrets.OCI_SSH_KEY }}
+          source: "deploy/migrations,deploy/scripts,deploy/compose.yaml"
+          target: "/home/ubuntu/agrolink"
+          strip_components: 0
+
+      - name: Ejecutar Migraciones y Despliegue en la Instancia de OCI
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          CR_PAT: ${{ secrets.CR_PAT }}
+          GITHUB_ACTOR: ${{ github.actor }}
+        with:
+          host: ${{ secrets.OCI_HOST }}
+          username: ${{ secrets.OCI_USERNAME }}
+          key: ${{ secrets.OCI_SSH_KEY }}
+          envs: CR_PAT,GITHUB_ACTOR
+          script: |
+            set -e
+            APP_DIR="/home/ubuntu/agrolink"
+            cd "$APP_DIR"
+
+            echo "🗄️  Aplicando migraciones de esquema pendientes..."
+            set -a
+            source deploy/.env
+            set +a
+            chmod +x deploy/scripts/apply-migrations.sh
+            if ! deploy/scripts/apply-migrations.sh deploy/compose.yaml deploy/migrations POSTGRES_DB; then
+              echo "❌ Falló la aplicación de migraciones. El servicio en ejecución NO se toca."
+              exit 1
+            fi
+
+            echo "🔑 Autenticando en GitHub Packages..."
+            echo "$CR_PAT" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+
+            echo "📦 Descargando la última versión de la imagen..."
+            docker compose -f deploy/compose.yaml pull agrolink-ingesta
+
+            echo "🔄 Reiniciando el contenedor agrolink-ingesta (sin afectar timescaledb ni rinho-receptor)..."
+            docker compose -f deploy/compose.yaml up -d --no-deps agrolink-ingesta
+
+            echo "🩺 Verificando estado de salud del contenedor (healthcheck interno, sin puerto publicado)..."
+            MAX_ATTEMPTS=20
+            ATTEMPT=1
+            SLEEP_SECONDS=5
+
+            until [ "$(docker inspect --format='{{.State.Health.Status}}' agrolink-ingesta 2>/dev/null)" = "healthy" ]; do
+              if [ $ATTEMPT -ge $MAX_ATTEMPTS ]; then
+                echo "❌ Error: agrolink-ingesta no reportó 'healthy' tras $((MAX_ATTEMPTS * SLEEP_SECONDS)) segundos."
+                echo "📋 Últimos logs del contenedor:"
+                docker logs --tail 80 agrolink-ingesta
+                exit 1
+              fi
+              echo "⏳ Esperando inicio de la aplicación (intento $ATTEMPT/$MAX_ATTEMPTS)..."
+              sleep $SLEEP_SECONDS
+              ATTEMPT=$((ATTEMPT + 1))
+            done
+
+            echo "🧹 Limpiando imágenes antiguas en desuso..."
+            docker image prune -f
+
+            echo "✅ Despliegue completado con éxito."

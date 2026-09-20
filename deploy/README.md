@@ -270,3 +270,23 @@ dar por buena ninguna fila producida por el equipo hasta completarla:_
   simuladas: 5 `ID` distintos enviados en paralelo con `test/tools/buildFrame.js`, cada
   uno con exactamente 1 fila propia en la base, sin cruces. Reproducible con
   `quickstart.md` §7.
+
+## 7. CI/CD Automatizado
+
+`.github/workflows/ci-cd.yml` hace en cada push a `master` (o `workflow_dispatch` manual):
+`test` (mvn) → `build-and-push` (imagen `linux/arm64` a `ghcr.io`) → `migrate-and-deploy`
+(aplica migraciones de esquema pendientes, luego reinicia solo `agrolink-ingesta` y
+verifica su healthcheck). Contrato completo:
+`specs/007-cicd-deploy-ghcr/contracts/ci-cd-workflow.md`.
+
+### Secrets requeridos en el repo (Settings → Secrets and variables → Actions)
+
+| Secret | Uso |
+|--------|-----|
+| `CR_PAT` | GitHub PAT (`write:packages`/`read:packages`) — lo usa la VM para `docker login ghcr.io` y hacer `pull` de la imagen nueva. |
+| `OCI_HOST` | Hostname/IP pública de la VM. |
+| `OCI_USERNAME` | Usuario SSH en la VM. |
+| `OCI_SSH_KEY` | Clave privada SSH de ese usuario (sin passphrase — `appleboy/ssh-action` no soporta desbloqueo interactivo). |
+
+`GITHUB_TOKEN` (implícito, sin configuración) autentica el `push` a `ghcr.io` desde el
+job `build-and-push` — no hace falta crearlo como secret.
