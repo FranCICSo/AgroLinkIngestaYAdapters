@@ -199,3 +199,12 @@ T014, T017, T021, T024 remain unchecked: they require pushing to `master` (or ru
 repository secrets configured and the real OCI VM reachable — none of which this
 session can do on the user's behalf. Run those four manually once the secrets from
 `deploy/README.md` §7 are set, following `quickstart.md` end to end.
+
+### Real-run fix (2026-09-20, after first live attempt at T014)
+
+The first real `migrate-and-deploy` run failed at the migration step:
+`deploy/.env: No such file or directory`. Cause: the assumed `APP_DIR=
+"/home/ubuntu/agrolink"` didn't match this VM's actual layout. The repo owner confirmed the
+real path is `/home/ubuntu/AgroLinkIngestaYAdapters/deploy/.env`; `APP_DIR` and the
+`scp-action` `target` in `.github/workflows/ci-cd.yml` were updated to match. T014 should be
+re-attempted with this fix in place.
