@@ -105,7 +105,7 @@ jobs:
           username: ${{ secrets.OCI_USERNAME }}
           key: ${{ secrets.OCI_SSH_KEY }}
           source: "deploy/migrations,deploy/scripts,deploy/compose.yaml"
-          target: "/home/ubuntu/agrolink"
+          target: "/home/ubuntu/AgroLinkIngestaYAdapters"
           strip_components: 0
 
       - name: Ejecutar Migraciones y Despliegue en la Instancia de OCI
@@ -120,7 +120,7 @@ jobs:
           envs: CR_PAT,GITHUB_ACTOR
           script: |
             set -e
-            APP_DIR="/home/ubuntu/agrolink"
+            APP_DIR="/home/ubuntu/AgroLinkIngestaYAdapters"
             cd "$APP_DIR"
 
             echo "🗄️  Aplicando migraciones de esquema pendientes..."
