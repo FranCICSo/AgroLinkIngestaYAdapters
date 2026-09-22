@@ -10,9 +10,10 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
+  RINHO_RECEPTOR_IMAGE_NAME: ${{ github.repository }}-rinho-receptor
 
 concurrency:
-  group: deploy-agrolink-ingesta
+  group: deploy-agrolink-stack
   cancel-in-progress: false
 
 jobs:
@@ -65,7 +66,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extraer Metadata de Docker (Tags y Etiquetas)
+      - name: Extraer Metadata de Docker (agrolink-ingesta)
         id: meta
         uses: docker/metadata-action@v5
         with:
@@ -74,7 +75,7 @@ jobs:
             type=raw,value=latest
             type=sha,prefix=sha-,format=short
 
-      - name: Compilar y Publicar Imagen (linux/arm64)
+      - name: Compilar y Publicar Imagen de agrolink-ingesta (linux/arm64)
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -84,6 +85,26 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Extraer Metadata de Docker (rinho-receptor)
+        id: meta-rinho-receptor
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.RINHO_RECEPTOR_IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest
+            type=sha,prefix=sha-,format=short
+
+      - name: Compilar y Publicar Imagen de rinho-receptor (linux/arm64)
+        uses: docker/build-push-action@v5
+        with:
+          context: ./rinho-receptor
+          platforms: linux/arm64
+          push: true
+          tags: ${{ steps.meta-rinho-receptor.outputs.tags }}
+          labels: ${{ steps.meta-rinho-receptor.outputs.labels }}
+          cache-from: type=gha,scope=rinho-receptor
+          cache-to: type=gha,mode=max,scope=rinho-receptor
 
   # ============================================================================
   # 3. CD - Migrate & Deploy: Migraciones de esquema + Despliegue en OCI vía SSH
@@ -136,28 +157,40 @@ jobs:
             echo "🔑 Autenticando en GitHub Packages..."
             echo "$CR_PAT" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
 
-            echo "📦 Descargando la última versión de la imagen..."
-            docker compose -f deploy/compose.yaml pull agrolink-ingesta
+            wait_for_healthy() {
+              local container="$1"
+              local max_attempts=20
+              local attempt=1
+              local sleep_seconds=5
 
-            echo "🔄 Reiniciando el contenedor agrolink-ingesta (sin afectar timescaledb ni rinho-receptor)..."
-            docker compose -f deploy/compose.yaml up -d --no-deps agrolink-ingesta
+              until [ "$(docker inspect --format='{{.State.Health.Status}}' "$container" 2>/dev/null)" = "healthy" ]; do
+                if [ "$attempt" -ge "$max_attempts" ]; then
+                  echo "❌ Error: $container no reportó 'healthy' tras $((max_attempts * sleep_seconds)) segundos."
+                  echo "📋 Últimos logs del contenedor:"
+                  docker logs --tail 80 "$container"
+                  return 1
+                fi
+                echo "⏳ Esperando inicio de $container (intento $attempt/$max_attempts)..."
+                sleep "$sleep_seconds"
+                attempt=$((attempt + 1))
+              done
+            }
 
-            echo "🩺 Verificando estado de salud del contenedor (healthcheck interno, sin puerto publicado)..."
-            MAX_ATTEMPTS=20
-            ATTEMPT=1
-            SLEEP_SECONDS=5
+            echo "📦 Descargando la última versión de las imágenes (agrolink-ingesta, rinho-receptor)..."
+            docker compose -f deploy/compose.yaml pull agrolink-ingesta rinho-receptor
 
-            until [ "$(docker inspect --format='{{.State.Health.Status}}' agrolink-ingesta 2>/dev/null)" = "healthy" ]; do
-              if [ $ATTEMPT -ge $MAX_ATTEMPTS ]; then
-                echo "❌ Error: agrolink-ingesta no reportó 'healthy' tras $((MAX_ATTEMPTS * SLEEP_SECONDS)) segundos."
-                echo "📋 Últimos logs del contenedor:"
-                docker logs --tail 80 agrolink-ingesta
-                exit 1
-              fi
-              echo "⏳ Esperando inicio de la aplicación (intento $ATTEMPT/$MAX_ATTEMPTS)..."
-              sleep $SLEEP_SECONDS
-              ATTEMPT=$((ATTEMPT + 1))
-            done
+            echo "🔄 Reiniciando agrolink-ingesta y rinho-receptor (sin afectar timescaledb)..."
+            docker compose -f deploy/compose.yaml up -d --no-deps agrolink-ingesta rinho-receptor
+
+            echo "🩺 Verificando estado de salud de agrolink-ingesta (healthcheck interno, sin puerto publicado)..."
+            if ! wait_for_healthy agrolink-ingesta; then
+              exit 1
+            fi
+
+            echo "🩺 Verificando estado de salud de rinho-receptor..."
+            if ! wait_for_healthy rinho-receptor; then
+              exit 1
+            fi
 
             echo "🧹 Limpiando imágenes antiguas en desuso..."
             docker image prune -f

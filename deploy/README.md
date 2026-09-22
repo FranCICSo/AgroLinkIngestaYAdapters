@@ -274,10 +274,16 @@ dar por buena ninguna fila producida por el equipo hasta completarla:_
 ## 7. CI/CD Automatizado
 
 `.github/workflows/ci-cd.yml` hace en cada push a `master` (o `workflow_dispatch` manual):
-`test` (mvn) → `build-and-push` (imagen `linux/arm64` a `ghcr.io`) → `migrate-and-deploy`
-(aplica migraciones de esquema pendientes, luego reinicia solo `agrolink-ingesta` y
-verifica su healthcheck). Contrato completo:
+`test` (mvn) → `build-and-push` (imágenes `linux/arm64` de `agrolink-ingesta` **y**
+`rinho-receptor` a `ghcr.io`, cada una con su propio tag) → `migrate-and-deploy` (aplica
+migraciones de esquema pendientes, luego reinicia `agrolink-ingesta` y `rinho-receptor`
+—`timescaledb` queda intacto— y verifica el healthcheck de cada uno). Contrato completo:
 `specs/007-cicd-deploy-ghcr/contracts/ci-cd-workflow.md`.
+
+> ⚠️ Reiniciar `rinho-receptor` en cada deploy interrumpe por unos segundos la recepción
+> UDP de cualquier equipo de campo que esté reportando justo en ese momento. Es un
+> trade-off aceptado a propósito (antes, ese servicio no se redesplegaba nunca y podía
+> quedar corriendo código desactualizado sin que nadie lo notara).
 
 ### Secrets requeridos en el repo (Settings → Secrets and variables → Actions)
 
