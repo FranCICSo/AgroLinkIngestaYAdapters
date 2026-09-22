@@ -25,7 +25,17 @@ services:
           memory: 4g
 
   rinho-receptor:
+    # `image:` + `build:` juntos (mismo patron que agrolink-ingesta, mas abajo): en
+    # desarrollo local sin `.env` de registro, `docker compose up` construye desde
+    # `build:`. En produccion, el pipeline de CI/CD (feature 007-cicd-deploy-ghcr,
+    # extendido para cubrir tambien este servicio) hace `docker compose pull
+    # rinho-receptor` primero, que descarga esta imagen y evita el rebuild local.
+    image: ghcr.io/francicso/agrolinkingestayadapters-rinho-receptor:latest
     build: ../rinho-receptor
+    # Nombre de contenedor fijo, mismo motivo que agrolink-ingesta: el pipeline de CI/CD
+    # referencia este contenedor por nombre exacto via `docker inspect`/`docker logs`
+    # para su healthcheck, y el nombre por default depende del directorio de invocacion.
+    container_name: rinho-receptor
     restart: unless-stopped
     environment:
       UDP_PORT: ${UDP_PORT}
@@ -55,6 +65,12 @@ services:
           memory: 256m
 
   agrolink-ingesta:
+    # `image:` es lo que permite `docker compose pull agrolink-ingesta` en el pipeline de
+    # CI/CD (antes de esta correccion, el servicio solo tenia `build:`, asi que `pull`
+    # no tenia nada de donde traer y el deploy dependia, sin quererlo, de una imagen local
+    # ya construida). `build:` se mantiene para desarrollo local sin registro (deploy/README.md
+    # SS2.7).
+    image: ghcr.io/francicso/agrolinkingestayadapters:latest
     build: ..
     # Nombre de contenedor fijo (en vez del default <project>-agrolink-ingesta-1):
     # el pipeline de CI/CD (feature 007-cicd-deploy-ghcr) referencia este contenedor por

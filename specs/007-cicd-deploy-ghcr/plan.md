@@ -4,6 +4,17 @@
 
 **Input**: Feature specification from `/specs/007-cicd-deploy-ghcr/spec.md`
 
+> **Actualización (2026-09-22)**: el alcance de este plan se amplió después de la
+> primera implementación. `rinho-receptor` fue excluido deliberadamente (ver más abajo,
+> "per spec Assumptions"), pero eso dejó un cambio real (`odometro_m` → `odometro_km`,
+> feature 005) sin desplegar: el pipeline solo reiniciaba `agrolink-ingesta`, así que
+> `rinho-receptor` siguió corriendo con código viejo hasta fallar en producción con
+> `column "odometro_m" does not exist` una vez que la migración de esquema (aplicada a
+> mano, ahora trackeada como `deploy/migrations/001_odometro_m_to_odometro_km.sql`) le
+> quitó esa columna de abajo. El texto original de este plan se deja sin reescribir
+> (documenta la decisión inicial y su razonamiento); el contrato actualizado con el
+> comportamiento vigente está en `contracts/ci-cd-workflow.md`.
+
 ## Summary
 
 Add a GitHub Actions pipeline — mirroring `AgroLinkBackend/.github/workflows/ci-cd.yml`
