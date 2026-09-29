@@ -23,6 +23,11 @@ CREATE TABLE telemetria.lectura_telemetria (
     combustible_consumido_l NUMERIC(10,2),
     temperatura_refrigerante_c SMALLINT,
     presion_aceite_kpa      SMALLINT,
+    -- Sensor BLE del slot 0 (feature 008). NUMERIC sin limites (research.md D-05); la
+    -- bateria es el valor crudo del sensor, unidad sin confirmar (% o mV).
+    ble_temperatura_c       NUMERIC,
+    ble_humedad_pct         NUMERIC,
+    ble_bateria             NUMERIC,
     ignicion                BOOLEAN,
     tension_bateria_v       NUMERIC(4,1),
     satelites               SMALLINT,

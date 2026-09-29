@@ -74,3 +74,23 @@ test('datagrama con multiples tramas concatenadas se itera completo', () => {
   assert.equal(frames[0].deviceId, '2326');
   assert.equal(frames[1].deviceId, '037883');
 });
+
+function withValidChecksum(frameText) {
+  const upTo = frameText.slice(0, frameText.lastIndexOf('*') + 1);
+  return `${upTo}${calculateChecksum(upTo)}<`;
+}
+
+test('segmento vacio intermedio se conserva: CAN vacio no corre el segmento BLE (feature 008, D-01)', () => {
+  const gps = VENDOR_FRAME.slice(4, VENDOR_FRAME.indexOf(';'));
+  const [frame] = parseDatagram(withValidChecksum(`>REQ${gps};;T0=1;ID=2326;*`));
+  assert.equal(frame.checksumValid, true);
+  assert.equal(frame.body, `REQ${gps};;T0=1`);
+  assert.equal(frame.deviceId, '2326');
+});
+
+test('las tramas de referencia producen el mismo body que antes de la feature 008', () => {
+  const [vendor] = parseDatagram(VENDOR_FRAME);
+  const [real] = parseDatagram(REAL_FRAME);
+  assert.equal(vendor.body, VENDOR_FRAME.slice(1, VENDOR_FRAME.indexOf(';ID=')));
+  assert.equal(real.body, REAL_FRAME.slice(1, REAL_FRAME.indexOf(';ID=')));
+});

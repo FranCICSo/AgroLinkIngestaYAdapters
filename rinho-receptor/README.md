@@ -4,6 +4,11 @@ Receptor y parser propio del reporte EQ del protocolo Rinho Spider IoT, por UDP.
 contrato completo en
 [`../specs/001-ingesta-adaptacion-telemetria/contracts/rinho-eq-frame.md`](../specs/001-ingesta-adaptacion-telemetria/contracts/rinho-eq-frame.md).
 
+El body de la trama se separa **por posición** en `src/protocol/bodySections.js`: GPS, CAN
+y un tercer segmento BLE opcional (lecturas de sensores, feature 008, contrato en
+[`../specs/008-ble-sensor-ingestion/contracts/rinho-ble-segment.md`](../specs/008-ble-sensor-ingestion/contracts/rinho-ble-segment.md)).
+Un EQ estándar no trae ese segmento y se procesa igual que antes.
+
 ## Relación con `rinho-udp-server`
 
 Este servicio nace como evolución "productiva" del prototipo

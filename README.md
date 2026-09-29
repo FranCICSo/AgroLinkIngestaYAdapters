@@ -6,8 +6,8 @@ para AgroLink: reporte de viaje y estado de vehículo por dispositivo.
 
 Desarrollado con [Spec-Kit](.specify/), feature por feature, en
 [`specs/`](specs/): ingesta base (001), consulta de estado de vehículo (002), campos CAN
-estructurados (003), odómetro en kilómetros (004, 005) y seed de telemetría local para
-desarrollo (006).
+estructurados (003), odómetro en kilómetros (004, 005), seed de telemetría local para
+desarrollo (006) e ingesta de sensores BLE (008).
 
 ## Arquitectura
 
@@ -58,6 +58,10 @@ Decisiones y contratos completos, feature por feature, bajo [`specs/`](specs/):
   a punta (el dispositivo reporta en km, no en metros).
 - [`006-seed-lectura-telemetria/`](specs/006-seed-lectura-telemetria/) — `make seed-telemetry`
   para poblar telemetría de ejemplo en un ambiente local.
+- [`008-ble-sensor-ingestion/`](specs/008-ble-sensor-ingestion/) — segmento BLE opcional en la
+  trama (temperatura, humedad y batería del sensor del slot 0) persistido en columnas
+  `ble_*`. Aún sin verificar con un sensor físico: guía de puesta en marcha en
+  [`docs/guias/configuracion-sensor-ble.md`](docs/guias/configuracion-sensor-ble.md).
 
 Cada carpeta tiene `spec.md`, `plan.md`, `research.md`, `tasks.md` y (cuando aplica)
 `contracts/`/`quickstart.md`. Principios del proyecto en
