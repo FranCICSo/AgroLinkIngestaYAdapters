@@ -6,11 +6,17 @@ on:
   pull_request:
     branches: [ "master" ]
   workflow_dispatch:
+    inputs:
+      deploy_simulador:
+        description: "Tambien construir y levantar simulador-viajes en la VM (herramienta de demo/dev, nunca automatico en un push normal)"
+        type: boolean
+        default: false
 
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
   RINHO_RECEPTOR_IMAGE_NAME: ${{ github.repository }}-rinho-receptor
+  SIMULADOR_VIAJES_IMAGE_NAME: ${{ github.repository }}-simulador-viajes
 
 concurrency:
   group: deploy-agrolink-stack
@@ -36,6 +42,28 @@ jobs:
 
       - name: Ejecutar Pruebas con Maven
         run: mvn clean test -B
+
+  test-simulador:
+    name: Unit Tests (simulador-viajes)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: simulador-viajes/package-lock.json
+
+      - name: Instalar dependencias
+        working-directory: simulador-viajes
+        run: npm ci
+
+      - name: Ejecutar tests unitarios (simulador-viajes)
+        working-directory: simulador-viajes
+        run: npm test
 
   # ============================================================================
   # 2. CD - Build: Construcción de Imagen Docker ARM64 y Push a GHCR
@@ -105,6 +133,61 @@ jobs:
           labels: ${{ steps.meta-rinho-receptor.outputs.labels }}
           cache-from: type=gha,scope=rinho-receptor
           cache-to: type=gha,mode=max,scope=rinho-receptor
+
+  # ============================================================================
+  # 2.1 CD - Build (manual): simulador-viajes NO es parte del stack de produccion.
+  # Nunca se construye ni se publica en un push normal - solo con workflow_dispatch
+  # marcando el input "deploy_simulador" (herramienta de demo/dev, feature 009).
+  # ============================================================================
+  build-and-push-simulador:
+    name: Build & Push Docker Image (simulador-viajes)
+    needs: test-simulador
+    if: github.event_name == 'workflow_dispatch' && inputs.deploy_simulador == true
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+
+      - name: Configurar QEMU (Soporte ARM64 para Oracle Ampere A1)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Configurar Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Autenticar en GitHub Container Registry (GHCR)
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extraer Metadata de Docker (simulador-viajes)
+        id: meta-simulador
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.SIMULADOR_VIAJES_IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest
+            type=sha,prefix=sha-,format=short
+
+      - name: Compilar y Publicar Imagen de simulador-viajes (linux/arm64)
+        uses: docker/build-push-action@v5
+        with:
+          # Contexto = raiz del repo (no simulador-viajes/): frameBuilder.js importa
+          # rinho-receptor/test/tools/buildFrame.js por ruta relativa entre proyectos
+          # (research.md D-01 de la feature 009), y la imagen necesita esos archivos.
+          context: .
+          file: simulador-viajes/Dockerfile
+          platforms: linux/arm64
+          push: true
+          tags: ${{ steps.meta-simulador.outputs.tags }}
+          labels: ${{ steps.meta-simulador.outputs.labels }}
+          cache-from: type=gha,scope=simulador-viajes
+          cache-to: type=gha,mode=max,scope=simulador-viajes
 
   # ============================================================================
   # 3. CD - Migrate & Deploy: Migraciones de esquema + Despliegue en OCI vía SSH
@@ -196,3 +279,73 @@ jobs:
             docker image prune -f
 
             echo "✅ Despliegue completado con éxito."
+
+  # ============================================================================
+  # 3.1 CD - Deploy (manual): levanta simulador-viajes en la VM. Nunca corre en un push
+  # normal - solo con workflow_dispatch + input "deploy_simulador" (feature 009). Depende
+  # de migrate-and-deploy para asegurarse de que el schema `simulador` (migracion 004) y
+  # el rinho-receptor de esa VM ya estan al dia antes de conectar el simulador contra ellos.
+  # ============================================================================
+  deploy-simulador:
+    name: Deploy simulador-viajes to OCI Compute Instance
+    needs: [ build-and-push-simulador, migrate-and-deploy ]
+    if: github.event_name == 'workflow_dispatch' && inputs.deploy_simulador == true
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+
+      - name: Copiar el seed del camión 1 de referencia a la instancia de OCI
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.OCI_HOST }}
+          username: ${{ secrets.OCI_USERNAME }}
+          key: ${{ secrets.OCI_SSH_KEY }}
+          source: "deploy/seed/simulador-camion-1.sql"
+          target: "/home/ubuntu/AgroLinkIngestaYAdapters"
+          strip_components: 0
+
+      - name: Levantar simulador-viajes en la Instancia de OCI
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          CR_PAT: ${{ secrets.CR_PAT }}
+          GITHUB_ACTOR: ${{ github.actor }}
+        with:
+          host: ${{ secrets.OCI_HOST }}
+          username: ${{ secrets.OCI_USERNAME }}
+          key: ${{ secrets.OCI_SSH_KEY }}
+          envs: CR_PAT,GITHUB_ACTOR
+          script: |
+            set -e
+            APP_DIR="/home/ubuntu/AgroLinkIngestaYAdapters"
+            cd "$APP_DIR"
+
+            set -a
+            source deploy/.env
+            set +a
+
+            echo "🔑 Autenticando en GitHub Packages..."
+            echo "$CR_PAT" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+
+            echo "🌱 Cargando el camión 1 de referencia (idempotente, se omite si ya existe)..."
+            docker compose -f deploy/compose.yaml exec -T timescaledb \
+              psql -U postgres -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 -f - \
+              < deploy/seed/simulador-camion-1.sql
+
+            echo "📦 Descargando la última imagen de simulador-viajes..."
+            docker compose -f deploy/compose.yaml --profile simulador pull simulador-viajes
+
+            echo "🚚 Levantando simulador-viajes (apunta al rinho-receptor de esta misma VM)..."
+            docker compose -f deploy/compose.yaml --profile simulador up -d --no-deps simulador-viajes
+
+            echo "🩺 Verificando que el contenedor haya arrancado (sin healthcheck propio: es un cliente UDP/DB saliente)..."
+            sleep 5
+            if [ "$(docker inspect --format='{{.State.Running}}' simulador-viajes 2>/dev/null)" != "true" ]; then
+              echo "❌ Error: simulador-viajes no quedó corriendo."
+              echo "📋 Últimos logs del contenedor:"
+              docker logs --tail 80 simulador-viajes
+              exit 1
+            fi
+
+            echo "✅ simulador-viajes desplegado y corriendo."

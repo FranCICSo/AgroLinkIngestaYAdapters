@@ -204,6 +204,39 @@ duplicar filas) y usa el rol `rinho_receptor` — el script vive en `deploy/seed
 `deploy/db/`, así que nunca se ejecuta automáticamente ni en el stack local ni en la VM de
 producción; hay que invocarlo a mano.
 
+### 2.7.2 Simulador de viajes con camiones ficticios (`simulador-viajes`)
+
+A diferencia del seed anterior, `simulador-viajes` sí envía tramas UDP reales contra
+`rinho-receptor` — ejercita el camino completo (parseo, checksum, ACK, persistencia) sin
+depender de hardware Rinho físico. Ver la especificación completa en
+`specs/009-simulador-viajes/` y la guía paso a paso en
+`specs/009-simulador-viajes/quickstart.md`. Para el día a día (agregar/editar camiones,
+forzar una falla de carga refrigerada, variables de entorno), ver
+[`../simulador-viajes/README.md`](../simulador-viajes/README.md).
+
+Vive en `profiles: ["simulador"]` del `compose.yaml`: nunca arranca con un `docker compose
+up` normal, hay que pedirlo explícitamente:
+
+```bash
+cd deploy
+# 1. Una sola vez: aplicar el schema `simulador` (no viaja en 01-schema.sql para no
+#    mezclar la config mutable de esta herramienta con el schema insert-only de telemetría)
+docker compose exec -T timescaledb psql -U postgres -d "$POSTGRES_DB" \
+  -f /docker-entrypoint-initdb.d/03-schema-simulador.sql   # o vía docker cp si el volumen ya existía
+
+# 2. Cargar el camión 1 de referencia (ruta real de 88 puntos, odómetro inicial 150200 km)
+docker cp seed/simulador-camion-1.sql deploy-timescaledb-1:/tmp/
+docker compose exec -T timescaledb psql -U postgres -d "$POSTGRES_DB" -f /tmp/simulador-camion-1.sql
+
+# 3. Levantarlo (apunta a local por defecto — nunca a la VM de producción sin
+#    APUNTAR_A_PRODUCCION=true explícito en .env, ver FR-012)
+docker compose --profile simulador up simulador-viajes
+```
+
+Administrar la flota (agregar/editar camiones, forzar una falla de carga refrigerada, etc.)
+es directo por `psql`/DataGrip sobre el schema `simulador`, sin reiniciar el proceso — el
+simulador relee la configuración en cada ciclo de 60s.
+
 ## 3. Reinicio sin pérdida de datos (T020) — ✅ verificado
 
 `docker compose restart <servicio>` deja cada contenedor `healthy` de nuevo sin perder
@@ -296,3 +329,36 @@ migraciones de esquema pendientes, luego reinicia `agrolink-ingesta` y `rinho-re
 
 `GITHUB_TOKEN` (implícito, sin configuración) autentica el `push` a `ghcr.io` desde el
 job `build-and-push` — no hace falta crearlo como secret.
+
+### 7.1 Schema del simulador (`simulador-viajes`) en el `migrate-and-deploy` normal
+
+El job `migrate-and-deploy` de cada push a `master` ya aplica
+`deploy/migrations/004_add_simulador_schema.sql` (mismo mecanismo que las demás
+migraciones): crea el schema `simulador` y su rol dedicado en la VM aunque el simulador
+todavía no se haya desplegado ahí — deja la base lista de antemano.
+
+> ⚠️ **Precondición manual, una sola vez**: esa migración hace `\getenv
+> SIMULADOR_VIAJES_DB_PASSWORD` para crear el rol. Como `timescaledb` **no se reinicia** en
+> cada deploy (§7, arriba), hay que agregar `SIMULADOR_VIAJES_DB_USER` y
+> `SIMULADOR_VIAJES_DB_PASSWORD` al `deploy/.env` de la VM (mismo formato que
+> `.env.example`) **antes** de que corra este pipeline por primera vez con esta feature —
+> `apply-migrations.sh` reenvía esa variable al `exec` explícitamente (ver comentario en el
+> script) precisamente para no depender de si `timescaledb` ya la tiene "horneada" en su
+> entorno o no, pero igual necesita que exista en el `.env` que lee la sesión SSH del job.
+
+### 7.2 Desplegar el simulador en la VM (manual, `workflow_dispatch`)
+
+El simulador es una herramienta de demo/dev, no parte del stack de producción: no se
+construye ni se publica en `build-and-push`, y `migrate-and-deploy` nunca lo levanta. Para
+correrlo en la VM hay que disparar el workflow a mano desde la pestaña *Actions* → **Run
+workflow**, tildando el input **"Desplegar simulador-viajes"**. Eso agrega dos jobs:
+
+- `build-and-push-simulador`: build+push de `ghcr.io/.../...-simulador-viajes` (`linux/arm64`).
+- `deploy-simulador`: en la VM, aplica el camión 1 de referencia
+  (`deploy/seed/simulador-camion-1.sql`, idempotente) y levanta el contenedor con
+  `docker compose --profile simulador up -d --no-deps simulador-viajes` — apunta al
+  `rinho-receptor` de esa misma VM por nombre de servicio (no hace falta
+  `APUNTAR_A_PRODUCCION`: al correr *en* la VM, "local" ya es esa VM).
+
+Bajarlo de nuevo es manual: `ssh` a la VM y `docker compose --profile simulador stop
+simulador-viajes` (el pipeline no lo detiene solo).

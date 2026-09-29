@@ -7,6 +7,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_SUPERUSER_PASSWORD}
       RINHO_RECEPTOR_DB_PASSWORD: ${RINHO_RECEPTOR_DB_PASSWORD}
       AGROLINK_INGESTA_DB_PASSWORD: ${AGROLINK_INGESTA_DB_PASSWORD}
+      SIMULADOR_VIAJES_DB_PASSWORD: ${SIMULADOR_VIAJES_DB_PASSWORD}
     volumes:
       - timescaledb-data:/var/lib/postgresql/data
       - ./db:/docker-entrypoint-initdb.d:ro
@@ -63,6 +64,38 @@ services:
       resources:
         limits:
           memory: 256m
+
+  simulador-viajes:
+    # Herramienta de desarrollo/demo (feature 009-simulador-viajes), no parte del stack de
+    # produccion: no tiene `image:` en un registro propio, no se publica en el pipeline de
+    # CI/CD y se levanta solo cuando alguien lo pide explicitamente
+    # (`docker compose up simulador-viajes`), nunca con `docker compose up` a secas para
+    # los demas servicios.
+    build:
+      context: ..
+      dockerfile: simulador-viajes/Dockerfile
+    container_name: simulador-viajes
+    profiles: ["simulador"]
+    restart: "no"
+    environment:
+      RECEPTOR_HOST: ${RECEPTOR_HOST:-rinho-receptor}
+      RECEPTOR_PORT: ${RECEPTOR_PORT:-5000}
+      APUNTAR_A_PRODUCCION: ${APUNTAR_A_PRODUCCION:-false}
+      DB_HOST: timescaledb
+      DB_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB}
+      SIMULADOR_VIAJES_DB_USER: ${SIMULADOR_VIAJES_DB_USER}
+      SIMULADOR_VIAJES_DB_PASSWORD: ${SIMULADOR_VIAJES_DB_PASSWORD}
+    # Sin `ports:`: es un cliente UDP/DB saliente, no expone nada (plan.md, Constraints).
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      rinho-receptor:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 128m
 
   agrolink-ingesta:
     # `image:` es lo que permite `docker compose pull agrolink-ingesta` en el pipeline de

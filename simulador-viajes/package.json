@@ -1,0 +1,17 @@
+{
+  "name": "simulador-viajes",
+  "version": "1.0.0",
+  "description": "Simulador de camiones ficticios que emiten telemetria Rinho Spider IoT real por UDP.",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test test/**/*.test.js"
+  },
+  "dependencies": {
+    "pg": "^8.13.0"
+  }
+}

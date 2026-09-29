@@ -55,8 +55,16 @@ for file in "${sorted_files[@]}"; do
   fi
 
   echo "▶️  Aplicando $version..."
+  # -e reenvia las contrasenas de rol desde el shell que invoca este script (sourceadas de
+  # deploy/.env) al exec, en vez de depender del entorno ya "horneado" en el contenedor de
+  # timescaledb en ejecucion: ese contenedor NO se recrea en cada deploy (para no afectarlo),
+  # asi que una password agregada a .env despues de su ultimo arranque no estaria ahi sin
+  # este forwarding explicito. Necesario desde que una migracion (004) hace `\getenv` para
+  # crear un rol nuevo contra un volumen ya existente.
   if ! { cat "$file"; printf "\nINSERT INTO public.schema_migrations (version) VALUES ('%s');\n" "$version"; } \
-      | DC exec -T timescaledb psql -v ON_ERROR_STOP=1 -1 -U postgres -d "$POSTGRES_DB_VALUE"; then
+      | DC exec -T \
+          -e RINHO_RECEPTOR_DB_PASSWORD -e AGROLINK_INGESTA_DB_PASSWORD -e SIMULADOR_VIAJES_DB_PASSWORD \
+          timescaledb psql -v ON_ERROR_STOP=1 -1 -U postgres -d "$POSTGRES_DB_VALUE"; then
     echo "❌ Error aplicando $version. Deteniendo — ninguna migración posterior se intenta," >&2
     echo "   y el servicio en ejecución NO se toca (FR-015)." >&2
     exit 1
