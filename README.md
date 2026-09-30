@@ -43,7 +43,7 @@ red interna del compose (Principio VI de la constitución del proyecto).
 | Endpoint | Puerto | Descripción |
 |---|---|---|
 | `GET /api/v1/reportes/viaje` | `REPORTES_HTTP_PORT` (interno, no publicado) | Métricas de un viaje: distancia, combustible, velocidad. |
-| `GET /api/v1/vehiculos/{dispositivoId}/estado` | `VEHICULO_ESTADO_HTTP_PORT` (publicado) | Última lectura de telemetría de un dispositivo: posición, bloque CAN bus (VIN, RPM, velocidad de rueda, odómetro en km, combustible, temperatura de refrigerante, presión de aceite, tensión de batería) e indicadores del dispositivo (ignición, satélites, estado de interpretación). `404` (Problem Detail) si el dispositivo no tiene telemetría. |
+| `GET /api/v1/vehiculos/{dispositivoId}/estado` | `VEHICULO_ESTADO_HTTP_PORT` (publicado) | Última lectura de telemetría de un dispositivo: posición, bloque CAN bus (VIN, RPM, velocidad de rueda, odómetro en km, combustible, temperatura de refrigerante, presión de aceite, tensión de batería y temperatura de un sensor BLE de carga) e indicadores del dispositivo (ignición, satélites, estado de interpretación). `404` (Problem Detail) si el dispositivo no tiene telemetría. |
 
 Decisiones y contratos completos, feature por feature, bajo [`specs/`](specs/):
 
@@ -62,6 +62,9 @@ Decisiones y contratos completos, feature por feature, bajo [`specs/`](specs/):
   trama (temperatura, humedad y batería del sensor del slot 0) persistido en columnas
   `ble_*`. Aún sin verificar con un sensor físico: guía de puesta en marcha en
   [`docs/guias/configuracion-sensor-ble.md`](docs/guias/configuracion-sensor-ble.md).
+- [`010-estado-temperatura-ble/`](specs/010-estado-temperatura-ble/) — expone la temperatura
+  del sensor BLE (ingestada por la 008) en `canBus.bleTemperaturaC` de la consulta de
+  estado. Cambio aditivo; humedad y batería del sensor no se exponen todavía.
 
 Cada carpeta tiene `spec.md`, `plan.md`, `research.md`, `tasks.md` y (cuando aplica)
 `contracts/`/`quickstart.md`. Principios del proyecto en

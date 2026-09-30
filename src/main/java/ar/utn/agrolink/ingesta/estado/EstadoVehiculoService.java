@@ -52,7 +52,8 @@ public class EstadoVehiculoService {
                 lectura.getCombustiblePct(),
                 lectura.getTemperaturaRefrigeranteC(),
                 lectura.getPresionAceiteKpa(),
-                lectura.getTensionBateriaV());
+                lectura.getTensionBateriaV(),
+                lectura.getBleTemperaturaC());
     }
 
     private DispositivoInfoDto mapearDispositivo(LecturaTelemetria lectura) {
