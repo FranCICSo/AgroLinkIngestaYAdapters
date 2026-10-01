@@ -44,6 +44,7 @@ class EstadoVehiculoServiceTest {
                 340,
                 true,
                 13.2,
+                4.2,
                 9,
                 EstadoInterpretacion.COMPLETA,
                 List.of(),
@@ -61,6 +62,7 @@ class EstadoVehiculoServiceTest {
                 null,
                 184.3,
                 OrigenOdometro.ECU,
+                null,
                 null,
                 null,
                 null,
@@ -93,6 +95,7 @@ class EstadoVehiculoServiceTest {
             Integer presionAceiteKpa,
             Boolean ignicion,
             Double tensionBateriaV,
+            Double bleTemperaturaC,
             Integer satelites,
             EstadoInterpretacion estadoInterpretacion,
             List<String> camposFaltantes,
@@ -119,6 +122,7 @@ class EstadoVehiculoServiceTest {
             set(l, "presionAceiteKpa", presionAceiteKpa);
             set(l, "ignicion", ignicion);
             set(l, "tensionBateriaV", tensionBateriaV);
+            set(l, "bleTemperaturaC", bleTemperaturaC);
             set(l, "satelites", satelites);
             set(l, "estadoInterpretacion", estadoInterpretacion);
             set(l, "camposFaltantes", camposFaltantes);
@@ -164,6 +168,7 @@ class EstadoVehiculoServiceTest {
         assertThat(dto.canBus().temperaturaRefrigeranteC()).isEqualTo(90);
         assertThat(dto.canBus().presionAceiteKpa()).isEqualTo(340);
         assertThat(dto.canBus().tensionBateriaV()).isEqualTo(13.2); // reubicado desde dispositivo
+        assertThat(dto.canBus().bleTemperaturaC()).isEqualTo(4.2);
         assertThat(dto.dispositivo().dispositivoId()).isEqualTo("2326");
         assertThat(dto.dispositivo().estadoInterpretacion()).isEqualTo(EstadoInterpretacion.COMPLETA);
         assertThat(dto.dispositivo().camposFaltantes()).isEmpty();
@@ -186,6 +191,7 @@ class EstadoVehiculoServiceTest {
         assertThat(dto.canBus().temperaturaRefrigeranteC()).isNull();
         assertThat(dto.canBus().presionAceiteKpa()).isNull();
         assertThat(dto.canBus().tensionBateriaV()).isNull();
+        assertThat(dto.canBus().bleTemperaturaC()).isNull();
         assertThat(dto.dispositivo().estadoInterpretacion()).isEqualTo(EstadoInterpretacion.PARCIAL);
         assertThat(dto.dispositivo().camposFaltantes()).contains("latitud", "longitud", "combustible_pct");
     }
@@ -212,6 +218,7 @@ class EstadoVehiculoServiceTest {
                         340,
                         true,
                         13.2,
+                        4.2,
                         9,
                         EstadoInterpretacion.COMPLETA,
                         List.of(),
@@ -246,6 +253,7 @@ class EstadoVehiculoServiceTest {
                         340,
                         true,
                         13.2,
+                        4.2,
                         9,
                         EstadoInterpretacion.COMPLETA,
                         List.of(),

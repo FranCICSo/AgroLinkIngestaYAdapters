@@ -20,8 +20,9 @@ import org.hibernate.type.SqlTypes;
  * Proyeccion completa de la fila que usan los dos consumidores de este servicio: el reporte
  * de viaje (dispositivoId, momentoEvento, velocidadKmh, odometroKm, odometroOrigen,
  * combustiblePct) y la consulta de estado de vehiculo (feature 002: ademas posicion,
- * indicadores propios del dispositivo y CAN bus crudo). Solo quedan fuera `payload_crudo`
- * y `frame_hash`: siguen sin consumidor, son responsabilidad exclusiva del receptor/auditoria.
+ * indicadores propios del dispositivo y CAN bus crudo; feature 010: ademas la temperatura
+ * de un sensor BLE de carga). Solo quedan fuera `payload_crudo` y `frame_hash`: siguen sin
+ * consumidor, son responsabilidad exclusiva del receptor/auditoria.
  *
  * `campos_faltantes` (TEXT[]) y `datos_can` (JSONB) se mapean con el soporte nativo de
  * Hibernate 6 (@JdbcTypeCode), sin agregar ninguna dependencia nueva al proyecto.
@@ -85,6 +86,11 @@ public class LecturaTelemetria {
 
     @Column(name = "tension_bateria_v")
     private Double tensionBateriaV;
+
+    // Temperatura de un sensor BLE de carga (slot 0), ingestada por la feature 008.
+    // NUMERIC sin escala fija en la columna: puede traer decimales, por eso Double.
+    @Column(name = "ble_temperatura_c")
+    private Double bleTemperaturaC;
 
     @Column(name = "satelites")
     private Integer satelites;
@@ -175,6 +181,10 @@ public class LecturaTelemetria {
 
     public Double getTensionBateriaV() {
         return tensionBateriaV;
+    }
+
+    public Double getBleTemperaturaC() {
+        return bleTemperaturaC;
     }
 
     public Integer getSatelites() {

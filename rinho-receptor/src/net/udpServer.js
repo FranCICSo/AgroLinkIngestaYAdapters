@@ -2,19 +2,13 @@ import dgram from 'node:dgram';
 import { parseDatagram } from '../protocol/frame.js';
 import { parseGpsSection } from '../protocol/eqParser.js';
 import { parseCanSection } from '../protocol/canObd.js';
+import { parseBleSection } from '../protocol/bleSection.js';
+import { splitBody } from '../protocol/bodySections.js';
 import { mapFrameToLectura } from '../domain/lecturaMapper.js';
 import { buildAck } from './ack.js';
 import { log } from '../log.js';
 
-function splitBody(body) {
-  // body = "REQ<gps>[;<can>]"
-  const withoutPrefix = body.slice(3);
-  const semiIdx = withoutPrefix.indexOf(';');
-  if (semiIdx === -1) return { gpsText: withoutPrefix, canText: '' };
-  return { gpsText: withoutPrefix.slice(0, semiIdx), canText: withoutPrefix.slice(semiIdx + 1) };
-}
-
-async function handleFrame(frame, repository, socket, rinfo, horaUtcOffsetHours) {
+export async function handleFrame(frame, repository, socket, rinfo, horaUtcOffsetHours) {
   // Rechazo explicito y registrado (nunca silencioso, FR-013 + Principio IX): sin
   // dispositivo_id valido o con checksum invalido, la trama se descarta ANTES de intentar
   // interpretarla.
@@ -29,13 +23,24 @@ async function handleFrame(frame, repository, socket, rinfo, horaUtcOffsetHours)
 
   let lectura;
   try {
-    const { gpsText, canText } = splitBody(frame.body);
+    const { gpsText, canText, bleText, extraSegments } = splitBody(frame.body);
+    if (extraSegments.length > 0) {
+      // No se rechaza: el dato sigue completo en payload_crudo, pero queda evidencia de que
+      // el equipo emite un formato distinto al contrato (Principio IX).
+      log.warn('Trama con segmentos inesperados en el body: se ignoran', {
+        raw: frame.raw,
+        from: rinfo.address,
+        extraSegments,
+      });
+    }
     const gps = parseGpsSection(gpsText);
     const can = parseCanSection(canText);
+    const ble = parseBleSection(bleText);
     lectura = mapFrameToLectura({
       deviceId: frame.deviceId,
       gps,
       can,
+      ble,
       payloadCrudo: frame.raw,
       msgNum: frame.msgNum,
       horaUtcOffsetHours,

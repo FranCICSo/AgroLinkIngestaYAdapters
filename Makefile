@@ -14,7 +14,7 @@ else
     endif
 endif
 
-.PHONY: help dev start stack docker-up docker-down dc-up dc-down db-reset timescaledb receptor ingesta seed-telemetry
+.PHONY: help dev start stack docker-up docker-down dc-up dc-down db-reset timescaledb receptor ingesta seed-telemetry simulador
 
 help:
 	@echo "=========================================================="
@@ -32,6 +32,9 @@ help:
 	@echo "  make seed-telemetry - Inserta datos de telemetria de ejemplo (dispositivo"
 	@echo "                      860693084873877) en TimescaleDB local. Nunca corre en"
 	@echo "                      produccion (no forma parte de deploy/db/)."
+	@echo "  make simulador    - Levanta el simulador de viajes (feature 009): aplica su"
+	@echo "                      schema + camion 1 de referencia si hace falta, y lo corre"
+	@echo "                      contra el receptor local (nunca produccion por defecto)."
 	@echo "=========================================================="
 
 # Docker Compose: stack completo (alias docker-up / stack)
@@ -73,6 +76,23 @@ seed-telemetry: timescaledb
 	   -v ON_ERROR_STOP=1 -f - < seed/seed-demo-telemetry.sql
 	@echo "✅ Datos de telemetria de ejemplo insertados (o ya existian)."
 
+# Simulador de viajes (feature 009-simulador-viajes): camiones ficticios que envian
+# telemetria real por UDP al receptor. Vive en profiles: ["simulador"] del compose, asi que
+# nunca arranca con `docker compose up`/`make stack` a secas - solo con este target.
+# Aplica su schema (deploy/db/03-schema-simulador.sql) y el camion 1 de referencia
+# (deploy/seed/simulador-camion-1.sql) si todavia no existen - ambos scripts son
+# idempotentes, se pueden re-aplicar sin duplicar nada.
+simulador: timescaledb receptor
+	@echo "🚚 Preparando el schema del simulador y el camion 1 de referencia (si hace falta)..."
+	@cd "$(DEPLOY_DIR)" && set -a && . ./.env && set +a && \
+	 docker compose exec -T -e SIMULADOR_VIAJES_DB_PASSWORD timescaledb \
+	   psql -U postgres -d "$${POSTGRES_DB}" -v ON_ERROR_STOP=1 -f - < db/03-schema-simulador.sql && \
+	 docker compose exec -T timescaledb \
+	   psql -U postgres -d "$${POSTGRES_DB}" -v ON_ERROR_STOP=1 -f - < seed/simulador-camion-1.sql
+	@echo "🚚 Levantando el simulador de viajes (camion 900001, apunta a local por defecto)..."
+	@cd "$(DEPLOY_DIR)" && docker compose --profile simulador up -d simulador-viajes
+	@echo "✅ Simulador corriendo. Logs: cd $(DEPLOY_DIR) && docker compose logs -f simulador-viajes"
+
 # Corre agrolink-ingesta localmente (Spring Boot) contra el TimescaleDB de Docker.
 # Detiene el contenedor dockerizado del mismo servicio primero: comparten los mismos
 # puertos (REPORTES_HTTP_PORT / VEHICULO_ESTADO_HTTP_PORT) y chocarian si ambos corren.
@@ -85,9 +105,9 @@ ingesta: timescaledb
 	 VEHICULO_ESTADO_HTTP_PORT=$${VEHICULO_ESTADO_HTTP_PORT:-8082} \
 	 mvn spring-boot:run
 
-# Infra en Docker (db + receptor) + ingesta local, para desarrollo iterativo
-dev: timescaledb receptor
-	@echo "🔥 AgroLink Ingesta: TimescaleDB + receptor en Docker, agrolink-ingesta local..."
+# Infra en Docker (db + receptor + simulador) + ingesta local, para desarrollo iterativo
+dev: timescaledb receptor simulador
+	@echo "🔥 AgroLink Ingesta: TimescaleDB + receptor + simulador en Docker, agrolink-ingesta local..."
 	@echo "ℹ️  Ctrl+C detiene solo ingesta. Los contenedores Docker siguen corriendo"
 	@echo "   ('make docker-down' para bajarlos)."
 	@$(MAKE) ingesta

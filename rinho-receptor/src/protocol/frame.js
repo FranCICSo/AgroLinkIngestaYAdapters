@@ -27,7 +27,12 @@ function parseOneFrame(raw) {
   // El envelope siempre termina en ";ID=<deviceId>;" justo antes del '*': split(';')
   // produce por eso un ultimo elemento vacio en TODA trama, no solo en casos raros. Hay
   // que descartarlo explicitamente o se cuela como un segmento mas.
-  const segments = beforeStar.split(';').filter((seg) => seg !== '');
+  //
+  // SOLO ese ultimo: los vacios intermedios se conservan porque el body se interpreta por
+  // posicion (GPS / CAN / BLE, feature 008 research.md D-01). Con un CAN vacio
+  // ("REQ<gps>;;T0=..."), descartarlos correria el segmento BLE a la posicion del CAN.
+  const segments = beforeStar.split(';');
+  if (segments[segments.length - 1] === '') segments.pop();
 
   // El envelope es REQ<gps>[;<CAN>][;#msgNum];ID=<deviceId>. La seccion CAN es un segmento
   // mas, sin prefijo reconocible (no es ";#" ni ";ID="): hay que conservarla en el body en

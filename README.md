@@ -6,8 +6,8 @@ para AgroLink: reporte de viaje y estado de vehículo por dispositivo.
 
 Desarrollado con [Spec-Kit](.specify/), feature por feature, en
 [`specs/`](specs/): ingesta base (001), consulta de estado de vehículo (002), campos CAN
-estructurados (003), odómetro en kilómetros (004, 005) y seed de telemetría local para
-desarrollo (006).
+estructurados (003), odómetro en kilómetros (004, 005), seed de telemetría local para
+desarrollo (006) e ingesta de sensores BLE (008).
 
 ## Arquitectura
 
@@ -43,7 +43,7 @@ red interna del compose (Principio VI de la constitución del proyecto).
 | Endpoint | Puerto | Descripción |
 |---|---|---|
 | `GET /api/v1/reportes/viaje` | `REPORTES_HTTP_PORT` (interno, no publicado) | Métricas de un viaje: distancia, combustible, velocidad. |
-| `GET /api/v1/vehiculos/{dispositivoId}/estado` | `VEHICULO_ESTADO_HTTP_PORT` (publicado) | Última lectura de telemetría de un dispositivo: posición, bloque CAN bus (VIN, RPM, velocidad de rueda, odómetro en km, combustible, temperatura de refrigerante, presión de aceite, tensión de batería) e indicadores del dispositivo (ignición, satélites, estado de interpretación). `404` (Problem Detail) si el dispositivo no tiene telemetría. |
+| `GET /api/v1/vehiculos/{dispositivoId}/estado` | `VEHICULO_ESTADO_HTTP_PORT` (publicado) | Última lectura de telemetría de un dispositivo: posición, bloque CAN bus (VIN, RPM, velocidad de rueda, odómetro en km, combustible, temperatura de refrigerante, presión de aceite, tensión de batería y temperatura de un sensor BLE de carga) e indicadores del dispositivo (ignición, satélites, estado de interpretación). `404` (Problem Detail) si el dispositivo no tiene telemetría. |
 
 Decisiones y contratos completos, feature por feature, bajo [`specs/`](specs/):
 
@@ -58,6 +58,13 @@ Decisiones y contratos completos, feature por feature, bajo [`specs/`](specs/):
   a punta (el dispositivo reporta en km, no en metros).
 - [`006-seed-lectura-telemetria/`](specs/006-seed-lectura-telemetria/) — `make seed-telemetry`
   para poblar telemetría de ejemplo en un ambiente local.
+- [`008-ble-sensor-ingestion/`](specs/008-ble-sensor-ingestion/) — segmento BLE opcional en la
+  trama (temperatura, humedad y batería del sensor del slot 0) persistido en columnas
+  `ble_*`. Aún sin verificar con un sensor físico: guía de puesta en marcha en
+  [`docs/guias/configuracion-sensor-ble.md`](docs/guias/configuracion-sensor-ble.md).
+- [`010-estado-temperatura-ble/`](specs/010-estado-temperatura-ble/) — expone la temperatura
+  del sensor BLE (ingestada por la 008) en `canBus.bleTemperaturaC` de la consulta de
+  estado. Cambio aditivo; humedad y batería del sensor no se exponen todavía.
 
 Cada carpeta tiene `spec.md`, `plan.md`, `research.md`, `tasks.md` y (cuando aplica)
 `contracts/`/`quickstart.md`. Principios del proyecto en

@@ -11,6 +11,9 @@ import ar.utn.agrolink.ingesta.telemetry.OrigenOdometro;
  * {@link DispositivoInfoDto} (spec, Clarifications, sesion 2026-09-13). {@code odometroKm}
  * reemplazo a {@code odometroM} en la feature 004; desde la feature 005 el almacenamiento
  * interno tambien esta en kilometros, asi que este campo se expone sin conversion alguna.
+ * {@code bleTemperaturaC} es la temperatura de un sensor BLE de carga (slot 0): no viene
+ * del CAN bus del vehiculo sino de un sensor inalambrico externo, ingestada por la
+ * feature 008 y expuesta aqui desde la feature 010; {@code null} si no fue reportada.
  */
 public record CanBusDto(
         String vin,
@@ -22,4 +25,5 @@ public record CanBusDto(
         Double combustiblePct,
         Integer temperaturaRefrigeranteC,
         Integer presionAceiteKpa,
-        Double tensionBateriaV) {}
+        Double tensionBateriaV,
+        Double bleTemperaturaC) {}

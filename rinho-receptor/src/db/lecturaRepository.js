@@ -36,10 +36,10 @@ const INSERT_SQL = `
   INSERT INTO lectura_telemetria (
     dispositivo_id, momento_evento, latitud, longitud, velocidad_kmh, rumbo_grados,
     odometro_km, odometro_origen, combustible_pct, vin, rpm, combustible_consumido_l,
-    temperatura_refrigerante_c, presion_aceite_kpa, ignicion, tension_bateria_v,
-    satelites, estado_interpretacion, campos_faltantes, datos_can, payload_crudo,
-    frame_hash, msg_num, reporte_id
-  ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
+    temperatura_refrigerante_c, presion_aceite_kpa, ble_temperatura_c, ble_humedad_pct,
+    ble_bateria, ignicion, tension_bateria_v, satelites, estado_interpretacion,
+    campos_faltantes, datos_can, payload_crudo, frame_hash, msg_num, reporte_id
+  ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27)
   ON CONFLICT (dispositivo_id, momento_evento, frame_hash) DO NOTHING
   RETURNING id
 `;
@@ -73,6 +73,9 @@ export function createLecturaRepository(pool, dedupCacheTtlMs) {
         lectura.combustibleConsumidoL,
         lectura.temperaturaRefrigeranteC,
         lectura.presionAceiteKpa,
+        lectura.bleTemperaturaC,
+        lectura.bleHumedadPct,
+        lectura.bleBateria,
         lectura.ignicion,
         lectura.tensionBateriaV,
         lectura.satelites,

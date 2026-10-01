@@ -7,6 +7,11 @@
 //   node test/tools/buildFrame.js --device-id 1001
 //   node test/tools/buildFrame.js --device-id 1001 --lat -2778100 --lon -06425857 \
 //       --speed 000 --heading 151 --can "15=75,B=66010"
+//   node test/tools/buildFrame.js --device-id 2326 --msg-num 0012 \
+//       --can "1=,2=,3=,B=,14=,15=,2A=,2C=" --ble "T0=23.5,H0=45.0,B0=3012"
+//
+// --ble agrega el tercer segmento (sensores BLE, feature 008). Sin --can queda
+// "REQ<gps>;;<ble>": el orden es posicional (specs/008-.../research.md D-08).
 
 import { calculateChecksum } from '../../src/protocol/frame.js';
 
@@ -49,6 +54,7 @@ export function buildFrame({
   gsm = '1',
   csq = '16',
   can = '',
+  ble = '',
   msgNum = null,
 } = {}) {
   if (!deviceId) throw new Error('deviceId es obligatorio');
@@ -78,7 +84,10 @@ export function buildFrame({
     throw new Error(`Seccion GPS generada con largo ${gps.length}, se esperaban 66`);
   }
 
-  const segments = [`REQ${gps}${can ? `;${can}` : ''}`];
+  let body = `REQ${gps}`;
+  if (can || ble) body += `;${can}`;
+  if (ble) body += `;${ble}`;
+  const segments = [body];
   if (msgNum) segments.push(`#${msgNum}`);
   segments.push(`ID=${deviceId}`);
 
@@ -97,6 +106,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     speed: args.speed,
     heading: args.heading,
     can: args.can,
+    ble: args.ble,
     msgNum: args['msg-num'],
   });
   process.stdout.write(frame);

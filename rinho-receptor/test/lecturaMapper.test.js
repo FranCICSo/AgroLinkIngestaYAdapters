@@ -4,6 +4,10 @@ import crypto from 'node:crypto';
 import { mapFrameToLectura } from '../src/domain/lecturaMapper.js';
 import { parseGpsSection } from '../src/protocol/eqParser.js';
 import { parseCanSection } from '../src/protocol/canObd.js';
+import { parseBleSection } from '../src/protocol/bleSection.js';
+import { splitBody } from '../src/protocol/bodySections.js';
+import { parseDatagram } from '../src/protocol/frame.js';
+import { buildFrame } from './tools/buildFrame.js';
 
 const VENDOR_FRAME =
   '>REQ00000000000000-2780656-064296830000117F00000010836F1130112FFFF1117;1=,2=,3=,B=,14=,15=,2A=,2C=;ID=2326;*01<';
@@ -265,4 +269,144 @@ test('frame_hash es el SHA-256 del payload crudo', () => {
   const lectura = buildLectura(REAL_FRAME, '037883');
   const expected = crypto.createHash('sha256').update(REAL_FRAME).digest('hex');
   assert.equal(lectura.frameHash, expected);
+});
+
+// --- Feature 008: segmento BLE (slot 0). Casos de data-model.md §2. ---
+
+function buildLecturaBle(bleText, frame = REAL_FRAME) {
+  const body = frame.slice(4, frame.indexOf(';ID='));
+  const [gpsText, canText] = body.split(';');
+  return mapFrameToLectura({
+    deviceId: '037883',
+    gps: parseGpsSection(gpsText),
+    can: parseCanSection(canText),
+    ble: parseBleSection(bleText),
+    payloadCrudo: frame,
+    msgNum: null,
+  });
+}
+
+const BLE_FALTANTES = ['bleTemperaturaC', 'bleHumedadPct', 'bleBateria'];
+
+test('BLE completo: los tres valores del slot 0 como datos propios, lectura COMPLETA', () => {
+  const lectura = buildLecturaBle('T0=23.5,H0=45.0,B0=3012');
+  assert.equal(lectura.bleTemperaturaC, 23.5);
+  assert.equal(lectura.bleHumedadPct, 45);
+  assert.equal(lectura.bleBateria, 3012);
+  assert.equal(lectura.estadoInterpretacion, 'COMPLETA');
+  assert.equal(lectura.camposFaltantes.length, 0);
+});
+
+test('BLE con valor vacio (T0=): NULL, nunca cero, con evidencia (PARCIAL + faltante)', () => {
+  const lectura = buildLecturaBle('T0=,H0=45.0,B0=3012');
+  assert.equal(lectura.bleTemperaturaC, null);
+  assert.equal(lectura.bleHumedadPct, 45);
+  assert.equal(lectura.estadoInterpretacion, 'PARCIAL');
+  assert.deepEqual(lectura.camposFaltantes, ['bleTemperaturaC']);
+});
+
+test('BLE con segmento presente pero sin la clave H0: NULL + faltante', () => {
+  const lectura = buildLecturaBle('T0=23.5,B0=3012');
+  assert.equal(lectura.bleHumedadPct, null);
+  assert.equal(lectura.estadoInterpretacion, 'PARCIAL');
+  assert.deepEqual(lectura.camposFaltantes, ['bleHumedadPct']);
+});
+
+test('BLE invalido: todo lo que no es un decimal plano queda NULL + faltante (D-03)', () => {
+  // Una coma decimal ("12,5") no es testeable aca: la coma separa pares, asi que llega
+  // como T0=12 mas un par mal formado "5" (contrato rinho-ble-segment.md §4).
+  for (const invalido of ['abc', '0x1A', '1e3', ' 12', 'Infinity', '-']) {
+    const lectura = buildLecturaBle(`T0=${invalido},H0=45.0,B0=3012`);
+    assert.equal(lectura.bleTemperaturaC, null, `"${invalido}" deberia ser NULL`);
+    assert.ok(lectura.camposFaltantes.includes('bleTemperaturaC'), `"${invalido}" sin evidencia`);
+    assert.equal(lectura.estadoInterpretacion, 'PARCIAL');
+  }
+});
+
+test('BLE cero valido: 0, no NULL ni faltante (SC-003)', () => {
+  const lectura = buildLecturaBle('T0=0,H0=45.0,B0=0');
+  assert.equal(lectura.bleTemperaturaC, 0);
+  assert.equal(lectura.bleBateria, 0);
+  assert.equal(lectura.camposFaltantes.length, 0);
+});
+
+test('BLE negativo y fuera de rango fisico: se persiste tal cual, sin faltante', () => {
+  const lectura = buildLecturaBle('T0=-5.25,H0=45.0,B0=3012');
+  assert.equal(lectura.bleTemperaturaC, -5.25);
+  const fuera = buildLecturaBle('T0=900,H0=45.0,B0=3012');
+  assert.equal(fuera.bleTemperaturaC, 900);
+  assert.equal(fuera.camposFaltantes.length, 0);
+});
+
+test('BLE: claves de otros slots y desconocidas se ignoran, y nunca entran en datos_can', () => {
+  const lectura = buildLecturaBle('T0=23.5,H0=45.0,B0=3012,T1=20,X0=1');
+  assert.equal(lectura.bleTemperaturaC, 23.5);
+  assert.equal(lectura.camposFaltantes.length, 0);
+  for (const clave of ['T0', 'H0', 'B0', 'T1', 'X0']) {
+    assert.equal(lectura.datosCan[clave], undefined);
+  }
+  assert.equal(lectura.bleT1, undefined);
+});
+
+test('BLE de punta a punta sin DB: buildFrame -> parseDatagram -> splitBody -> mapper', () => {
+  const trama = buildFrame({
+    deviceId: '2326',
+    can: '1=,2=,3=,B=,14=,15=,2A=,2C=',
+    ble: 'T0=23.5,H0=45.0,B0=3012',
+    msgNum: '0012',
+  });
+  const [frame] = parseDatagram(trama);
+  assert.equal(frame.checksumValid, true);
+  const { gpsText, canText, bleText } = splitBody(frame.body);
+  const lectura = mapFrameToLectura({
+    deviceId: frame.deviceId,
+    gps: parseGpsSection(gpsText),
+    can: parseCanSection(canText),
+    ble: parseBleSection(bleText),
+    payloadCrudo: frame.raw,
+    msgNum: frame.msgNum,
+  });
+  assert.equal(lectura.bleTemperaturaC, 23.5);
+  assert.equal(lectura.bleHumedadPct, 45);
+  assert.equal(lectura.bleBateria, 3012);
+  assert.equal(lectura.payloadCrudo, trama);
+  assert.equal(lectura.msgNum, '0012');
+});
+
+// --- US2: las tramas sin segmento BLE no cambian (FR-003, FR-007, SC-002). ---
+
+test('REGRESION 008: trama completa sin BLE sigue COMPLETA, columnas BLE en NULL', () => {
+  for (const ble of [undefined, new Map()]) {
+    const body = REAL_FRAME.slice(4, REAL_FRAME.indexOf(';ID='));
+    const [gpsText, canText] = body.split(';');
+    const lectura = mapFrameToLectura({
+      deviceId: '037883',
+      gps: parseGpsSection(gpsText),
+      can: parseCanSection(canText),
+      ble,
+      payloadCrudo: REAL_FRAME,
+      msgNum: null,
+    });
+    assert.equal(lectura.bleTemperaturaC, null);
+    assert.equal(lectura.bleHumedadPct, null);
+    assert.equal(lectura.bleBateria, null);
+    assert.equal(lectura.estadoInterpretacion, 'COMPLETA');
+    assert.equal(lectura.camposFaltantes.length, 0);
+  }
+});
+
+test('REGRESION 008: la ausencia de BLE no agrega faltantes a la trama del fabricante', () => {
+  const lectura = buildLectura(VENDOR_FRAME, '2326');
+  for (const nombre of BLE_FALTANTES) {
+    assert.equal(lectura.camposFaltantes.includes(nombre), false);
+  }
+  assert.deepEqual(lectura.camposFaltantes, [
+    'momentoEvento',
+    'combustiblePct',
+    'vin',
+    'rpm',
+    'combustibleConsumidoL',
+    'temperaturaRefrigeranteC',
+    'presionAceiteKpa',
+  ]);
 });

@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 
-// Crudo (GPS parseado + CAN parseado) -> Lectura de Telemetria normalizada.
+// Crudo (GPS parseado + CAN parseado + BLE parseado) -> Lectura de Telemetria normalizada.
 // Es el unico punto donde el formato Rinho se traduce al modelo de dominio de AgroLink
 // (Constitucion, Principio I): nada aguas abajo de esta funcion conoce la trama original.
 
@@ -25,6 +25,17 @@ const CAN_IDS_PROMOVIDOS = new Set([
   CAN_TEMP_REFRIGERANTE,
   CAN_PRESION_ACEITE,
 ]);
+
+// Segmento BLE (feature 008): solo se persiste el slot 0. Las claves de otros slots y las
+// desconocidas quedan unicamente en payload_crudo.
+const BLE_TEMPERATURA = 'T0';
+const BLE_HUMEDAD = 'H0';
+const BLE_BATERIA = 'B0';
+
+// Numero decimal plano, nada mas (research.md D-03). Number() solo no alcanza: convierte
+// '' en 0 (una lectura inventada) y acepta ' 12', '0x1A', '1e3' o 'Infinity', que no son
+// lo que mando el sensor; el valor guardado debe poder reconstruirse del crudo (SC-004).
+const BLE_NUMERO = /^-?\d+(\.\d+)?$/;
 
 function isValidLatitud(v) {
   return v >= -90 && v <= 90;
@@ -157,6 +168,21 @@ function resolvePresionAceite(can, camposFaltantes) {
   return presion;
 }
 
+// Sin segmento BLE (ble null o vacio) es el caso normal de un EQ estandar: null sin
+// evidencia, para no degradar a PARCIAL todas las lecturas actuales (FR-007). Con el
+// segmento presente, el equipo esta configurado para informar el sensor, y que falte o no
+// sea numerico un valor se registra igual que un ID CAN sin dato (research.md D-04). Sin
+// chequeo de rango: se persiste tal como lo reporta el sensor (spec, Edge Cases).
+function resolveBle(ble, clave, nombreCampo, camposFaltantes) {
+  if (!ble || ble.size === 0) return null;
+  const raw = ble.get(clave);
+  if (raw === undefined || !BLE_NUMERO.test(raw)) {
+    camposFaltantes.push(nombreCampo);
+    return null;
+  }
+  return Number(raw);
+}
+
 function buildDatosCan(can) {
   const datosCan = {};
   for (const [id, value] of can.entries()) {
@@ -166,7 +192,15 @@ function buildDatosCan(can) {
   return datosCan;
 }
 
-export function mapFrameToLectura({ deviceId, gps, can, payloadCrudo, msgNum, horaUtcOffsetHours = 0 }) {
+export function mapFrameToLectura({
+  deviceId,
+  gps,
+  can,
+  ble = null,
+  payloadCrudo,
+  msgNum,
+  horaUtcOffsetHours = 0,
+}) {
   const camposFaltantes = [];
 
   const momentoEvento = resolveMomentoEvento(gps, camposFaltantes, horaUtcOffsetHours);
@@ -196,6 +230,9 @@ export function mapFrameToLectura({ deviceId, gps, can, payloadCrudo, msgNum, ho
   const combustibleConsumidoL = resolveCombustibleConsumido(can, camposFaltantes);
   const temperaturaRefrigeranteC = resolveTemperaturaRefrigerante(can, camposFaltantes);
   const presionAceiteKpa = resolvePresionAceite(can, camposFaltantes);
+  const bleTemperaturaC = resolveBle(ble, BLE_TEMPERATURA, 'bleTemperaturaC', camposFaltantes);
+  const bleHumedadPct = resolveBle(ble, BLE_HUMEDAD, 'bleHumedadPct', camposFaltantes);
+  const bleBateria = resolveBle(ble, BLE_BATERIA, 'bleBateria', camposFaltantes);
   const datosCan = buildDatosCan(can);
 
   return {
@@ -213,6 +250,10 @@ export function mapFrameToLectura({ deviceId, gps, can, payloadCrudo, msgNum, ho
     combustibleConsumidoL,
     temperaturaRefrigeranteC,
     presionAceiteKpa,
+    bleTemperaturaC,
+    bleHumedadPct,
+    // Valor crudo, sin conversion: unidad sin confirmar (% o mV), spec Clarifications.
+    bleBateria,
     ignicion: gps.ignicion,
     tensionBateriaV: gps.tensionBateriaV,
     satelites: gps.satelites,

@@ -28,9 +28,15 @@ GEQbbc[;@dd..dd]
 |-----------|-------------|
 | `bb` | Número de reporte (`00`–`FF` hex) |
 | `c` | Código de buffer (un carácter) |
-| `dd..dd` | Campos de datos personalizados (opcional) |
+| `dd..dd` | Destino del reporte (p. ej. `GPRS`, `LOG`, `SMx`); opcional |
 
 Disponible desde firmware v1.00.00 en las plataformas Spider IoT y Smart IoT.
+
+> ⚠️ **Corrección** (feature 008): revisiones anteriores de este documento describían
+> `;@dd..dd` como "campos de datos personalizados". Es el **destino** del reporte, no un
+> mecanismo para agregar datos a la trama: `GEQ` no permite sumar campos. Para agregar
+> datos (p. ej. lecturas de sensores BLE) hace falta un reporte de usuario (`SUC` + `GUn`),
+> ver [`rinho-ble-segment.md`](../../008-ble-sensor-ingestion/contracts/rinho-ble-segment.md).
 
 ---
 
@@ -39,6 +45,11 @@ Disponible desde firmware v1.00.00 en las plataformas Spider IoT y Smart IoT.
 ```text
 >REQ<sección GPS: 66 chars><;sección CAN>[;#<msgNum>];ID=<deviceId>;*<checksum><
 ```
+
+Un tercer segmento opcional después del CAN (lecturas de sensores BLE, reporte de usuario
+que emula EQ) está especificado en
+[`008-ble-sensor-ingestion/contracts/rinho-ble-segment.md`](../../008-ble-sensor-ingestion/contracts/rinho-ble-segment.md).
+Los segmentos del body se identifican por posición.
 
 | Elemento | Regla |
 |----------|-------|
