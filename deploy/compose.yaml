@@ -67,10 +67,12 @@ services:
 
   simulador-viajes:
     # Herramienta de desarrollo/demo (feature 009-simulador-viajes), no parte del stack de
-    # produccion: no tiene `image:` en un registro propio, no se publica en el pipeline de
-    # CI/CD y se levanta solo cuando alguien lo pide explicitamente
-    # (`docker compose up simulador-viajes`), nunca con `docker compose up` a secas para
-    # los demas servicios.
+    # produccion: se levanta solo cuando alguien lo pide explicitamente (profile
+    # `simulador`), nunca con `docker compose up` a secas para los demas servicios.
+    # `image:` es lo que permite que el job manual `deploy-simulador` haga `pull` de la
+    # imagen publicada por `build-and-push-simulador`: la VM solo tiene deploy/, asi que
+    # sin esto `up` intentaria buildear desde `..` y fallaria. `build:` queda para local.
+    image: ghcr.io/francicso/agrolinkingestayadapters-simulador-viajes:latest
     build:
       context: ..
       dockerfile: simulador-viajes/Dockerfile

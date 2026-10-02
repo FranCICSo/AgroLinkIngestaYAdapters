@@ -77,6 +77,16 @@ COMMENT ON SCHEMA simulador IS
 
 SELECT NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'simulador_viajes') AS crear_rol \gset
 \if :crear_rol
+-- Sin la variable, psql deja `:'simulador_viajes_password'` sin sustituir y Postgres falla con
+-- un "syntax error at or near ':'" que no dice nada: se corta antes con un mensaje claro.
+\if :{?simulador_viajes_password}
+\else
+\set simulador_viajes_password ''
+\endif
+SELECT :'simulador_viajes_password' = '' AS falta_password \gset
+\if :falta_password
+DO $$ BEGIN RAISE EXCEPTION 'SIMULADOR_VIAJES_DB_PASSWORD no definida o vacia: agregarla a deploy/.env antes de aplicar (ver deploy/README.md, seccion 7.1)'; END $$;
+\endif
 CREATE ROLE simulador_viajes LOGIN PASSWORD :'simulador_viajes_password';
 \else
 \echo 'Rol simulador_viajes ya existe, se omite CREATE ROLE.'
