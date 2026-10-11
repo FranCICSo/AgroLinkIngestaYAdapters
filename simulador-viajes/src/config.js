@@ -11,6 +11,11 @@ const REQUIRED_VARS = [
   'SIMULADOR_VIAJES_DB_PASSWORD',
 ];
 
+// Default self-hosted (research.md D-04/Assumptions de la feature 011): el demo server
+// publico (router.project-osrm.org) queda como opcion manual solo para desarrollo local
+// temprano, nunca como default, por su rate limiting y falta de garantia de disponibilidad.
+const OSRM_BASE_URL_DEFAULT = 'http://localhost:5000';
+
 function readInt(name, value, fallback) {
   if (value === undefined || value === '') return fallback;
   const n = Number(value);
@@ -61,5 +66,9 @@ export function loadConfig(env = process.env) {
       password: env.SIMULADOR_VIAJES_DB_PASSWORD,
     },
     cicloMs: readInt('SIMULADOR_CICLO_MS', env.SIMULADOR_CICLO_MS, 60_000),
+    osrmBaseUrl: env.OSRM_BASE_URL || OSRM_BASE_URL_DEFAULT,
+    // Sin default: si no esta definida, iniciarRutaHttpServer() no se levanta (FR-005 es
+    // opcional para el loop de simulacion en si, T009/research.md D-04).
+    puertoHttp: readInt('PUERTO_HTTP', env.PUERTO_HTTP, undefined),
   };
 }

@@ -237,6 +237,16 @@ Administrar la flota (agregar/editar camiones, forzar una falla de carga refrige
 es directo por `psql`/DataGrip sobre el schema `simulador`, sin reiniciar el proceso — el
 simulador relee la configuración en cada ciclo de 60s.
 
+### 2.7.3 Generación de rutas simuladas y OSRM self-hosted (feature 011)
+
+En vez de armar `simulador.ruta` a mano (INSERT con el array de puntos copiado a ojo), ver
+`specs/011-generar-ruta-simulada/quickstart.md`: un comando (`npm run crear-ruta --`) o un
+endpoint HTTP interno (`POST /rutas`, no publicado al host) generan y persisten la ruta
+trazando sobre calles reales. Esa generación depende de un OSRM self-hosted, que también es
+parte del alcance de esta feature — `make osrm` (ya incluido en `make simulador`) lo descarga,
+preprocesa y levanta como un servicio más de `compose.yaml` (`profile: ["simulador"]`, sin
+`ports:`).
+
 ## 3. Reinicio sin pérdida de datos (T020) — ✅ verificado
 
 `docker compose restart <servicio>` deja cada contenedor `healthy` de nuevo sin perder

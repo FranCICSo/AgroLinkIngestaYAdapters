@@ -9,7 +9,9 @@
   },
   "scripts": {
     "start": "node src/index.js",
-    "test": "node --test test/**/*.test.js"
+    "test": "node --test test/**/*.test.js",
+    "crear-ruta": "node src/cli/crearRuta.js",
+    "listar-camiones": "node scripts/listar-camiones-activos.js"
   },
   "dependencies": {
     "pg": "^8.13.0"

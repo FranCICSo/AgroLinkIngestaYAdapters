@@ -7,14 +7,14 @@
 // reiniciar el proceso (research.md D-04).
 
 import { log } from '../log.js';
-
-// Rango reservado de dispositivo_id para camiones simulados: nunca puede coincidir con un
-// IMEI real de 15 digitos (research.md D-02, spec US5).
-const ID_RANGE_RE = /^900[0-9]{3}$/;
+import { enRangoReservado } from '../domain/rangoDispositivoSimulado.js';
 
 export function validarCamion(camion) {
-  if (!ID_RANGE_RE.test(camion.id)) {
-    return { valido: false, motivo: `id fuera del rango reservado 900001-900999: ${camion.id}` };
+  if (!enRangoReservado(camion.id)) {
+    return {
+      valido: false,
+      motivo: `id numerico fuera del rango reservado 900001-900999 (podria ser un IMEI real): ${camion.id}`,
+    };
   }
   if (camion.tipoCarga === 'refrigerada') {
     if (camion.setpointTempC == null || camion.setpointHumedadPct == null) {
