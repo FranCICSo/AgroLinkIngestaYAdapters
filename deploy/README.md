@@ -372,3 +372,12 @@ workflow**, tildando el input **"Desplegar simulador-viajes"**. Eso agrega dos j
 
 Bajarlo de nuevo es manual: `ssh` a la VM y `docker compose --profile simulador stop
 simulador-viajes` (el pipeline no lo detiene solo).
+
+> **Requisito para la feature 013-autostart-simulacion-viaje**: el `deploy/.env` de la VM
+> necesita `SIMULADOR_PUERTO_HTTP=8090` (no se puede fijar desde el repo — ese archivo nunca
+> se commitea, Principio VI). Sin esa variable, el servidor HTTP de `simulador-viajes`
+> (`POST /rutas`) no levanta, y `agrolink-ingesta` (que por default apunta a
+> `http://simulador-viajes:8090`) no va a poder arrancar ninguna simulación aunque el
+> contenedor esté corriendo — cada intento queda en `ERROR`, logueado, sin romper el alta
+> del viaje. Confirmar este valor en el `.env` de la VM **antes** de disparar
+> `deploy_simulador`.

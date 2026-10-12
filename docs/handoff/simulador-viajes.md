@@ -46,6 +46,12 @@ Contexto traído de una sesión de análisis previa (2026-09-26). Objetivo: simu
 > nuevo en `TripService` necesita esas coordenadas para armar el payload de
 > `POST .../viajes-simulados` — ese geocodificado queda pendiente en el otro repo, fuera del
 > alcance de lo construido acá.
+>
+> **Requisito de despliegue**: `agrolink-ingesta` llama por default a
+> `http://simulador-viajes:8090` (`agrolink.simulador-viajes.base-url` en `application.yaml`).
+> Eso solo responde si el `deploy/.env` de la VM tiene `SIMULADOR_PUERTO_HTTP=8090` — sin esa
+> variable, el servidor HTTP de `simulador-viajes` no levanta (ver `deploy/README.md` §7.2) y
+> cada arranque de simulación queda en `ERROR` (logueado, sin bloquear el alta del viaje).
 
 ## Consulta desde el backend
 
