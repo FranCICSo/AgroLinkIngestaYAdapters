@@ -1,13 +1,18 @@
 # AgroLink — Ingesta y Adaptación de Telemetría
 
 Trabajo final UTN. Ingesta de telemetría del dispositivo **Rinho Spider IoT** instalado en
-un camión piloto, almacenamiento auditable en **TimescaleDB**, y dos APIs HTTP de solo lectura
-para AgroLink: reporte de viaje y estado de vehículo por dispositivo.
+un camión piloto, almacenamiento auditable en **TimescaleDB**, y APIs HTTP de solo lectura
+para AgroLink: reporte de viaje y estado de vehículo por dispositivo. Incluye además
+**`simulador-viajes`**, un generador de telemetría sintética (Node.js) para los vehículos de
+demo, que `agrolink-ingesta` puede arrancar automáticamente cuando AgroLinkBackend planifica un
+viaje para uno de esos dispositivos.
 
 Desarrollado con [Spec-Kit](.specify/), feature por feature, en
 [`specs/`](specs/): ingesta base (001), consulta de estado de vehículo (002), campos CAN
 estructurados (003), odómetro en kilómetros (004, 005), seed de telemetría local para
-desarrollo (006) e ingesta de sensores BLE (008).
+desarrollo (006), ingesta de sensores BLE (008), generación de rutas simuladas (011),
+velocidad/RPM verosímiles en la simulación (012) y arranque automático de la simulación al
+crear un viaje (013).
 
 ## Arquitectura
 
@@ -20,23 +25,38 @@ Dispositivo Rinho Spider IoT
 │  Node.js 22 · UDP     │ INSERT │  hypertable        │ SELECT │  Spring Boot 3 · HTTP  │
 │  parser + ACK         │  only  │  telemetria.*      │  only  │  reportes + estado     │
 └─────────────────────┘        └──────────────────┘        └───────────────────────┘
-     único puerto                  sin puerto                dos conectores HTTP:
-     publicado (UDP)                publicado                reportes (interno) +
-                                                               estado (publicado)
+     único puerto                  sin puerto               ▲       dos conectores HTTP:
+     publicado (UDP)                publicado                │       reportes (interno) +
+                                                               │       estado (publicado)
+                                            POST /rutas,       │
+                                      arranca/cancela viaje    │ POST/PUT/DELETE
+                                                               │ .../viajes-simulados
+                                                               │ (dispositivos de la lista
+                                                               │  cerrada, solo flota propia)
+                                                     ┌───────────────────────┐
+                                                     │  simulador-viajes      │
+                                                     │  Node.js 22 · UDP      │
+                                                     │  genera telemetría     │
+                                                     │  sintética de demo     │
+                                                     └───────────────────────┘
 ```
 
-Tres servicios, orquestados con Docker Compose (`deploy/compose.yaml`). `agrolink-ingesta`
+Cuatro servicios, orquestados con Docker Compose (`deploy/compose.yaml`). `agrolink-ingesta`
 expone dos conectores HTTP en puertos distintos (`REPORTES_HTTP_PORT`, interno; y
 `VEHICULO_ESTADO_HTTP_PORT`, publicado para que AgroLinkBackend consulte el estado de un
-vehículo sin exponer también el reporte de viaje). El puerto UDP del receptor y el puerto de
-estado son los únicos publicados a la red externa — la base y el resto del tráfico viven en la
-red interna del compose (Principio VI de la constitución del proyecto).
+vehículo sin exponer también el reporte de viaje), más los endpoints nuevos de
+`viajes-simulados` bajo ese mismo puerto publicado (ver tabla abajo). El puerto UDP del receptor
+y el puerto de estado son los únicos publicados a la red externa — la base, `simulador-viajes` y
+el resto del tráfico viven en la red interna del compose (Principio VI de la constitución del
+proyecto); `simulador-viajes` corre bajo el profile `simulador` y no tiene puerto publicado,
+solo es alcanzable por `agrolink-ingesta` dentro de la red de Docker.
 
 | Componente | Stack | Rol | Código |
 |---|---|---|---|
 | `rinho-receptor` | Node.js 22, `pg` | Recibe UDP, parsea el reporte EQ, valida checksum, persiste, ACK solo después de commit | [`rinho-receptor/`](rinho-receptor/) |
 | `timescaledb` | TimescaleDB sobre Postgres 16 | Hypertable append-only, sin `UPDATE`/`DELETE` a nivel de rol de aplicación | [`deploy/db/`](deploy/db/) |
-| `agrolink-ingesta` | Java 21, Spring Boot 3.3.4 | Dos APIs HTTP de solo lectura (ver abajo) | [`src/`](src/) |
+| `agrolink-ingesta` | Java 21, Spring Boot 3.3.4 | APIs HTTP de solo lectura + arranque/control de simulaciones (ver abajo) | [`src/`](src/) |
+| `simulador-viajes` | Node.js 22 | Genera rutas y telemetría sintética para los vehículos de demo (flota propia), sin hardware real | [`simulador-viajes/`](simulador-viajes/) |
 
 ### APIs expuestas por `agrolink-ingesta`
 
@@ -44,6 +64,9 @@ red interna del compose (Principio VI de la constitución del proyecto).
 |---|---|---|
 | `GET /api/v1/reportes/viaje` | `REPORTES_HTTP_PORT` (interno, no publicado) | Métricas de un viaje: distancia, combustible, velocidad. |
 | `GET /api/v1/vehiculos/{dispositivoId}/estado` | `VEHICULO_ESTADO_HTTP_PORT` (publicado) | Última lectura de telemetría de un dispositivo: posición, bloque CAN bus (VIN, RPM, velocidad de rueda, odómetro en km, combustible, temperatura de refrigerante, presión de aceite, tensión de batería y temperatura de un sensor BLE de carga) e indicadores del dispositivo (ignición, satélites, estado de interpretación). `404` (Problem Detail) si el dispositivo no tiene telemetría. |
+| `POST /api/v1/vehiculos/{dispositivoId}/viajes-simulados` | `VEHICULO_ESTADO_HTTP_PORT` (publicado) | Programa el arranque de la simulación de telemetría de un viaje (llamado por AgroLinkBackend al crear un viaje). Solo tiene efecto si `dispositivoId` es uno de los 5 dispositivos simulados conocidos; dispara de inmediato si el horario ya pasó, o espera al horario programado. `404` si el dispositivo no está en la lista cerrada. |
+| `PUT /api/v1/vehiculos/{dispositivoId}/viajes-simulados/{tripCode}` | `VEHICULO_ESTADO_HTTP_PORT` (publicado) | Reprograma el horario de una simulación aún `PENDIENTE`. `404`/`409` si no existe o ya se disparó/canceló. |
+| `DELETE /api/v1/vehiculos/{dispositivoId}/viajes-simulados/{tripCode}` | `VEHICULO_ESTADO_HTTP_PORT` (publicado) | Cancela una simulación aún `PENDIENTE`. `404`/`409` si no existe o ya se disparó/canceló. |
 
 Decisiones y contratos completos, feature por feature, bajo [`specs/`](specs/):
 
@@ -65,6 +88,15 @@ Decisiones y contratos completos, feature por feature, bajo [`specs/`](specs/):
 - [`010-estado-temperatura-ble/`](specs/010-estado-temperatura-ble/) — expone la temperatura
   del sensor BLE (ingestada por la 008) en `canBus.bleTemperaturaC` de la consulta de
   estado. Cambio aditivo; humedad y batería del sensor no se exponen todavía.
+- [`011-generar-ruta-simulada/`](specs/011-generar-ruta-simulada/) — `simulador-viajes`: genera
+  una ruta (vía OSRM) y la telemetría sintética asociada para un vehículo de demo, por CLI o
+  por `POST /rutas`.
+- [`012-velocidad-rpm-verosimil/`](specs/012-velocidad-rpm-verosimil/) — velocidad y RPM
+  coherentes entre tramas consecutivas de la simulación (sin saltos irreales).
+- [`013-autostart-simulacion-viaje/`](specs/013-autostart-simulacion-viaje/) — `agrolink-ingesta`
+  recibe la planificación de un viaje de AgroLinkBackend y arranca/reprograma/cancela la
+  simulación en `simulador-viajes` en el horario correcto, sin que AgroLinkBackend llame
+  directamente al simulador.
 
 Cada carpeta tiene `spec.md`, `plan.md`, `research.md`, `tasks.md` y (cuando aplica)
 `contracts/`/`quickstart.md`. Principios del proyecto en
@@ -74,10 +106,11 @@ Cada carpeta tiene `spec.md`, `plan.md`, `research.md`, `tasks.md` y (cuando apl
 
 ```
 .
-├── src/                    # agrolink-ingesta (Spring Boot) — reportes + estado de vehiculo
+├── src/                    # agrolink-ingesta (Spring Boot) — reportes, estado y viajes simulados
 ├── rinho-receptor/         # Receptor UDP + parser del protocolo Rinho (Node.js)
+├── simulador-viajes/       # Generador de rutas y telemetria sintetica de demo (Node.js)
 ├── deploy/                 # docker compose, DDL/roles de base, seed de datos, runbook, VM
-└── specs/                  # Spec-Kit: spec, plan, research, contratos, tareas (001-006)
+└── specs/                  # Spec-Kit: spec, plan, research, contratos, tareas
 ```
 
 (`.specify/` contiene la constitución y plantillas de Spec-Kit; no es parte del runtime.)
@@ -93,7 +126,14 @@ Resumen para levantar todo localmente:
 cd deploy
 cp .env.example .env && $EDITOR .env   # completar contraseñas — ver deploy/README.md §2.3
 docker compose up -d
-docker compose ps                      # esperado: los tres servicios healthy
+docker compose ps                      # esperado: los servicios healthy
+```
+
+`simulador-viajes` está bajo el profile `simulador` (no se levanta por defecto, no tiene puerto
+publicado). Para incluirlo:
+
+```bash
+docker compose --profile simulador up -d
 ```
 
 O con el `Makefile` de la raíz (`make help` para ver todos los comandos):
@@ -118,19 +158,29 @@ para el flujo de ingesta completo).
 # rinho-receptor (Node.js) — parser, checksum, mapeo de dominio
 cd rinho-receptor && npm install && npm test
 
-# agrolink-ingesta (Java) — reporte de viaje, estado de vehiculo, filtro de puerto
+# simulador-viajes (Node.js) — generación de rutas, repositorios, servicios de simulación
+cd simulador-viajes && npm install && npm test
+
+# agrolink-ingesta (Java) — reporte de viaje, estado de vehiculo, filtro de puerto, viajes simulados
 mvn test
 ```
 
-Ambos suites incluyen los tests de integración contra el stack real levantado con
+Las tres suites incluyen los tests de integración contra el stack real levantado con
 `docker compose` (se saltan automáticamente si no hay variables de conexión a base).
 
 ## Estado
 
-Features 001 a 006 completas (ver el `tasks.md` de cada una bajo `specs/`). La feature 001
-tiene 6 tareas pendientes que requieren el dispositivo Rinho Spider IoT físico conectado a un
-camión real (captura de tramas reales, cobertura real de campos del ECU, latencia end-to-end
-medida, verificación del bit de ignición); están documentadas como pendientes, no fabricadas.
+Features 001 a 006, 008, 010 a 013 completas (ver el `tasks.md` de cada una bajo `specs/`). La
+feature 001 tiene 6 tareas pendientes que requieren el dispositivo Rinho Spider IoT físico
+conectado a un camión real (captura de tramas reales, cobertura real de campos del ECU,
+latencia end-to-end medida, verificación del bit de ignición); están documentadas como
+pendientes, no fabricadas.
+
+La feature 013 (arranque automático de simulación) depende de un hook en `TripService.java` del
+lado de **AgroLinkBackend** (repo separado) todavía no implementado — documentado en
+[`specs/013-autostart-simulacion-viaje/contracts/agrolink-backend-trip-hook.md`](specs/013-autostart-simulacion-viaje/contracts/agrolink-backend-trip-hook.md).
+Sin ese hook, los endpoints de `viajes-simulados` ya funcionan pero nada los llama todavía
+automáticamente al crear un viaje.
 
 **Migración pendiente si ya existe un volumen de base de datos inicializado**: las features 003
 y 005 cambiaron el esquema (`odometro_m` → `odometro_km`, nuevas columnas CAN). El DDL en
