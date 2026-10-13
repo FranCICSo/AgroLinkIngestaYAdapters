@@ -86,6 +86,32 @@ class ViajeProgramadoServiceTest {
     }
 
     @Test
+    void programar_sinDestino_lanzaCoordenadasNoDisponibles() {
+        ProgramarViajeRequest sinDestino = new ProgramarViajeRequest(
+                "V-SIN-DESTINO",
+                LocalDateTime.now().plusDays(1),
+                new PuntoDto(new BigDecimal("-34.6467"), new BigDecimal("-58.4894")),
+                null);
+
+        assertThatThrownBy(() -> service().programar("900001", sinDestino))
+                .isInstanceOf(CoordenadasNoDisponiblesException.class);
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    void programar_conLatNula_lanzaCoordenadasNoDisponibles() {
+        ProgramarViajeRequest latNula = new ProgramarViajeRequest(
+                "V-LAT-NULA",
+                LocalDateTime.now().plusDays(1),
+                new PuntoDto(null, new BigDecimal("-58.4894")),
+                new PuntoDto(new BigDecimal("-34.6037"), new BigDecimal("-58.3816")));
+
+        assertThatThrownBy(() -> service().programar("900001", latNula))
+                .isInstanceOf(CoordenadasNoDisponiblesException.class);
+        verify(repository, never()).save(any());
+    }
+
+    @Test
     void reprogramar_filaPendiente_actualizaElHorario() {
         ViajeProgramado existente = viajeDe("V4", "900001", LocalDateTime.now().plusDays(1));
         when(repository.findByTripCodeAndIotDeviceId("V4", "900001")).thenReturn(Optional.of(existente));

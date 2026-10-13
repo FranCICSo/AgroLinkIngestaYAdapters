@@ -66,6 +66,17 @@ public class ViajeProgramadoController {
                 .body(problem);
     }
 
+    @ExceptionHandler(CoordenadasNoDisponiblesException.class)
+    public ResponseEntity<ProblemDetail> handleCoordenadasNoDisponibles(CoordenadasNoDisponiblesException ex) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, ex.getMessage());
+        problem.setTitle("Coordenadas no disponibles");
+        problem.setType(URI.create("about:blank"));
+        problem.setProperty("error", "coordenadas_no_disponibles");
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .contentType(MediaType.APPLICATION_PROBLEM_JSON)
+                .body(problem);
+    }
+
     @ExceptionHandler(ViajeProgramadoNoEncontradoException.class)
     public ResponseEntity<ProblemDetail> handleNoEncontrado(ViajeProgramadoNoEncontradoException ex) {
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, ex.getMessage());
