@@ -7,6 +7,7 @@ import { sintetizarCan } from './domain/sintesisCan.js';
 import { sintetizarBle } from './domain/sintesisBle.js';
 import { construirTrama } from './protocol/frameBuilder.js';
 import { crearUdpClient } from './net/udpClient.js';
+import { iniciarRutaHttpServer } from './http/rutaHttpServer.js';
 
 // Estado que no vive en `simulador.viaje` (combustible/temperatura BLE acumulados,
 // contador de msgNum): se pierde si el proceso se reinicia, a diferencia de posicion y
@@ -165,9 +166,19 @@ async function main() {
   ejecutar();
   const intervalo = setInterval(ejecutar, config.cicloMs);
 
+  // FR-005/T009: opcional - solo si PUERTO_HTTP esta definida. No se publica al host en
+  // deploy/compose.yaml (research.md D-04, FR-006): alcanzable solo dentro de la red de
+  // Docker compose, nunca directamente desde el frontend de AgroLink.
+  const rutaHttpServer = config.puertoHttp
+    ? iniciarRutaHttpServer(pool, { osrmBaseUrl: config.osrmBaseUrl, puertoHttp: config.puertoHttp })
+    : null;
+
   const shutdown = async (signal) => {
     log.info('Apagando simulador-viajes', { signal });
     clearInterval(intervalo);
+    if (rutaHttpServer) {
+      await new Promise((resolve) => rutaHttpServer.close(resolve));
+    }
     await udpClient.cerrar();
     await closePool(pool);
     process.exit(0);

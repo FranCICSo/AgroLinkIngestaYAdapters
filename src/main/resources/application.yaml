@@ -6,6 +6,19 @@ server:
 vehiculo-estado:
   http-port: ${VEHICULO_ESTADO_HTTP_PORT:8082}
 
+# Feature 013-autostart-simulacion-viaje: agrolink-ingesta llama server-to-server a
+# simulador-viajes (research.md D-07) para arrancar la simulacion en el horario planificado.
+# Sin ports publicados entre ambos: misma red interna de Docker compose (deploy/compose.yaml).
+agrolink:
+  simulador-viajes:
+    base-url: ${SIMULADOR_VIAJES_BASE_URL:http://simulador-viajes:8090}
+    connect-timeout-ms: ${SIMULADOR_VIAJES_CONNECT_TIMEOUT_MS:2000}
+    read-timeout-ms: ${SIMULADOR_VIAJES_READ_TIMEOUT_MS:5000}
+  viaje-programado:
+    # Intervalo del poller (ViajeSimuladoScheduler, research.md D-01): mismo orden de magnitud
+    # que el daemon de simulador-viajes (60s), sin necesidad de ser mas fino a esta escala.
+    poll-interval-ms: ${VIAJE_PROGRAMADO_POLL_INTERVAL_MS:30000}
+
 spring:
   datasource:
     url: jdbc:postgresql://${DB_HOST}:${DB_PORT}/${POSTGRES_DB}?currentSchema=telemetria

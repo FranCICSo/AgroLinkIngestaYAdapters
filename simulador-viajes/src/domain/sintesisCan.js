@@ -1,10 +1,15 @@
 // Sintetiza los campos CAN que el equipo real de referencia no reportaba de forma
 // confiable (research.md D-05): RPM en funcion de la velocidad, combustible %/consumido en
 // funcion de la distancia recorrida, presion de aceite segun marcha/ralenti. FR-008.
+//
+// Rango de RPM (feature 012-velocidad-rpm-verosimil, research.md D-07): ralenti 600-800,
+// crucero en ruta (velocidad maxima verosimil, 80 km/h) 1200-1800 - nunca el techo RPM_MAX,
+// que antes se alcanzaba ya a 60 km/h (700 - 50 + 60*25 = 2200) por una formula pensada para
+// velocidades sin acotar. RPM_POR_KMH=10 da 700 + 80*10 = 1500 a velocidad maxima de ruta.
 
-const RPM_RALENTI_BASE = 750;
+const RPM_RALENTI_BASE = 700;
 const RPM_MAX = 2200;
-const RPM_POR_KMH = 25;
+const RPM_POR_KMH = 10;
 
 const COMBUSTIBLE_PCT_POR_KM = 0.05;
 const COMBUSTIBLE_CONSUMIDO_L_POR_KM = 0.35;
@@ -34,7 +39,7 @@ export function sintetizarCan({
 
   const rpm = detenido
     ? Math.round(RPM_RALENTI_BASE + ruido(20))
-    : Math.min(RPM_MAX, Math.round(RPM_RALENTI_BASE - 50 + velocidadKmh * RPM_POR_KMH));
+    : Math.min(RPM_MAX, Math.round(RPM_RALENTI_BASE + velocidadKmh * RPM_POR_KMH));
 
   const combustiblePct = Math.max(
     combustiblePctMinimo,

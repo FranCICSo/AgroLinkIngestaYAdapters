@@ -237,6 +237,16 @@ Administrar la flota (agregar/editar camiones, forzar una falla de carga refrige
 es directo por `psql`/DataGrip sobre el schema `simulador`, sin reiniciar el proceso — el
 simulador relee la configuración en cada ciclo de 60s.
 
+### 2.7.3 Generación de rutas simuladas y OSRM self-hosted (feature 011)
+
+En vez de armar `simulador.ruta` a mano (INSERT con el array de puntos copiado a ojo), ver
+`specs/011-generar-ruta-simulada/quickstart.md`: un comando (`npm run crear-ruta --`) o un
+endpoint HTTP interno (`POST /rutas`, no publicado al host) generan y persisten la ruta
+trazando sobre calles reales. Esa generación depende de un OSRM self-hosted, que también es
+parte del alcance de esta feature — `make osrm` (ya incluido en `make simulador`) lo descarga,
+preprocesa y levanta como un servicio más de `compose.yaml` (`profile: ["simulador"]`, sin
+`ports:`).
+
 ## 3. Reinicio sin pérdida de datos (T020) — ✅ verificado
 
 `docker compose restart <servicio>` deja cada contenedor `healthy` de nuevo sin perder
@@ -362,3 +372,12 @@ workflow**, tildando el input **"Desplegar simulador-viajes"**. Eso agrega dos j
 
 Bajarlo de nuevo es manual: `ssh` a la VM y `docker compose --profile simulador stop
 simulador-viajes` (el pipeline no lo detiene solo).
+
+> **Requisito para la feature 013-autostart-simulacion-viaje**: el `deploy/.env` de la VM
+> necesita `SIMULADOR_PUERTO_HTTP=8090` (no se puede fijar desde el repo — ese archivo nunca
+> se commitea, Principio VI). Sin esa variable, el servidor HTTP de `simulador-viajes`
+> (`POST /rutas`) no levanta, y `agrolink-ingesta` (que por default apunta a
+> `http://simulador-viajes:8090`) no va a poder arrancar ninguna simulación aunque el
+> contenedor esté corriendo — cada intento queda en `ERROR`, logueado, sin romper el alta
+> del viaje. Confirmar este valor en el `.env` de la VM **antes** de disparar
+> `deploy_simulador`.

@@ -88,6 +88,15 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
       SIMULADOR_VIAJES_DB_USER: ${SIMULADOR_VIAJES_DB_USER}
       SIMULADOR_VIAJES_DB_PASSWORD: ${SIMULADOR_VIAJES_DB_PASSWORD}
+      # Feature 011-generar-ruta-simulada. Levantar/operar OSRM es parte del alcance de
+      # esta feature (spec.md Clarifications): apunta por default al servicio `osrm` de
+      # mas abajo, en la misma red de Docker compose - `make osrm`/`make simulador` lo
+      # levantan (research.md D-08). PUERTO_HTTP es opcional (sin ella, el servidor HTTP
+      # de generacion de rutas no se levanta) y, si se define, NUNCA debe agregarse a
+      # `ports:` de este servicio (research.md D-04, FR-006): el endpoint queda alcanzable
+      # solo dentro de esta red interna, nunca desde el frontend de AgroLink.
+      OSRM_BASE_URL: ${OSRM_BASE_URL:-http://osrm:5000}
+      PUERTO_HTTP: ${SIMULADOR_PUERTO_HTTP:-}
     # Sin `ports:`: es un cliente UDP/DB saliente, no expone nada (plan.md, Constraints).
     depends_on:
       timescaledb:
@@ -98,6 +107,33 @@ services:
       resources:
         limits:
           memory: 128m
+
+  osrm:
+    # Servicio de ruteo self-hosted (feature 011-generar-ruta-simulada, research.md D-08):
+    # levantarlo y operarlo es parte del alcance de esta feature (proyecto de tesis/PoC,
+    # sin otro equipo que ya lo opere como infraestructura externa). `make osrm` (o
+    # `make simulador`, que ya depende de el) descarga el extracto OSM y lo preprocesa en
+    # `deploy/osrm-data/` antes de levantar este contenedor - ver
+    # specs/011-generar-ruta-simulada/quickstart.md.
+    image: osrm/osrm-backend
+    container_name: osrm
+    profiles: ["simulador"]
+    restart: unless-stopped
+    command: >-
+      osrm-routed --algorithm mld /data/${OSRM_REGION:-argentina}-latest.osrm
+    volumes:
+      - ./osrm-data:/data:ro
+    # Sin `ports:`: alcanzable solo dentro de la red de Docker compose (mismo patron que
+    # simulador-viajes) - nunca directamente desde el frontend de AgroLink ni publicado al
+    # host.
+    deploy:
+      resources:
+        limits:
+          # 1g se quedaba corto para el extracto completo de Argentina (~3.9 GB en disco entre
+          # .osrm.* precalculados) y osrm-routed terminaba en crash-loop por OOM-kill (exit
+          # 137). Herramienta de desarrollo local (profile "simulador", nunca corre en la VM
+          # de produccion) - 4g es un margen comodo en una maquina de desarrollo tipica.
+          memory: 4g
 
   agrolink-ingesta:
     # `image:` es lo que permite `docker compose pull agrolink-ingesta` en el pipeline de

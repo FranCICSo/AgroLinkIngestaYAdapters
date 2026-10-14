@@ -13,6 +13,11 @@ test('rechaza un camion cuyo id no matchea el rango reservado', () => {
   assert.match(motivo, /rango reservado/);
 });
 
+test('acepta un camion con id no numerico (calca un iotDeviceId de AgroLinkBackend)', () => {
+  const { valido } = validarCamion({ id: 'tra-demo-004', tipoCarga: 'seca' });
+  assert.equal(valido, true);
+});
+
 test('rechaza un camion refrigerado sin setpoint de temperatura o humedad', () => {
   const { valido, motivo } = validarCamion({
     id: '900002',

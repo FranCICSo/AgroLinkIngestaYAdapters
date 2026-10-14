@@ -5,11 +5,15 @@
 
 CREATE SCHEMA IF NOT EXISTS simulador;
 
--- Camion ficticio. El id vive en el rango reservado 900001-900999 (research.md D-02):
--- nunca puede coincidir con un IMEI real de 15 digitos, asi que no hace falta una columna
--- "simulado" aparte ni tocar el schema de telemetria para distinguirlos (spec US5).
+-- Camion ficticio. El id tipicamente vive en el rango reservado 900001-900999 (research.md
+-- D-02): nunca puede coincidir con un IMEI real de 15 digitos, asi que no hace falta una
+-- columna "simulado" aparte ni tocar el schema de telemetria para distinguirlos (spec US5).
+-- VARCHAR(20) (ensanchado via migracion 006-widen_camion_id, feature 011-generar-ruta-simulada
+-- US3) tambien admite calcar un iotDeviceId no numerico ya sembrado en AgroLinkBackend (ej.
+-- "tra-demo-004"): cualquier id con un caracter no numerico tampoco puede ser un IMEI real,
+-- ver src/domain/rangoDispositivoSimulado.js.
 CREATE TABLE IF NOT EXISTS simulador.camion (
-    id                      VARCHAR(6)      PRIMARY KEY,
+    id                      VARCHAR(20)     PRIMARY KEY,
     nombre                  VARCHAR(50)     NOT NULL,
     vin                     VARCHAR(20),
     tipo_carga              VARCHAR(20)     NOT NULL CHECK (tipo_carga IN ('seca', 'refrigerada')),
@@ -27,9 +31,13 @@ CREATE TABLE IF NOT EXISTS simulador.camion (
 -- leen completos por camion y nunca se consultan por campo individual (research.md D-.. /
 -- Principio III aplicado por analogia a diseno de datos: sin necesidad demostrada de
 -- normalizar en tablas hijas).
+-- `nombre` es UNIQUE desde la feature 011-generar-ruta-simulada (FR-008): el servicio de
+-- generacion de rutas se apoya en esta restriccion para detectar un nombre duplicado via
+-- el error de Postgres al insertar, en vez de un SELECT previo (research.md D-03). Un
+-- volumen ya existente recibe el mismo cambio via deploy/migrations/005_add_ruta_nombre_unique.sql.
 CREATE TABLE IF NOT EXISTS simulador.ruta (
     id                      SERIAL          PRIMARY KEY,
-    nombre                  VARCHAR(100)    NOT NULL,
+    nombre                  VARCHAR(100)    UNIQUE NOT NULL,
     -- [{ "lat": number, "lon": number }, ...] en orden de recorrido "ida".
     puntos                  JSONB           NOT NULL,
     -- [{ "indice": number, "duracion_min": number }, ...] paradas de entrega sobre `puntos`.
@@ -41,7 +49,7 @@ CREATE TABLE IF NOT EXISTS simulador.ruta (
 -- inconsistente a mano sin pelear con una restriccion - data-model.md SS3).
 CREATE TABLE IF NOT EXISTS simulador.viaje (
     id                      SERIAL          PRIMARY KEY,
-    camion_id               VARCHAR(6)      NOT NULL REFERENCES simulador.camion(id),
+    camion_id               VARCHAR(20)     NOT NULL REFERENCES simulador.camion(id),
     ruta_id                 INTEGER         NOT NULL REFERENCES simulador.ruta(id),
     sentido                 VARCHAR(6)      NOT NULL CHECK (sentido IN ('ida', 'vuelta')),
     indice_actual           INTEGER         NOT NULL DEFAULT 0,

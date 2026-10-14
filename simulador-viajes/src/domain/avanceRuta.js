@@ -56,13 +56,15 @@ function construirItinerario(ruta, sentido, cicloSegundos) {
   return itinerario;
 }
 
+// Velocidad urbana realista base para camiones de distribucion (35-45 km/h)
+const VELOCIDAD_URBANA_OBJETIVO_KMH = 40;
+
 export function avanzar({ ruta, sentido, indiceActual, odometroActualKm, cicloSegundos = 60 }) {
   const itinerario = construirItinerario(ruta, sentido, cicloSegundos);
   const indiceClamp = Math.min(indiceActual, itinerario.length - 1);
   const puntoActual = itinerario[indiceClamp];
-  const siguienteIndice = indiceClamp + 1;
 
-  if (siguienteIndice >= itinerario.length) {
+  if (indiceClamp >= itinerario.length - 1) {
     return {
       completado: true,
       siguienteIndice: null,
@@ -72,21 +74,68 @@ export function avanzar({ ruta, sentido, indiceActual, odometroActualKm, cicloSe
     };
   }
 
-  const puntoSiguiente = itinerario[siguienteIndice];
-  const distanciaKm = haversineKm(puntoActual, puntoSiguiente);
-  const detenido = puntoSiguiente.enParada && distanciaKm < 0.001;
+  // Si el punto actual o inmediato es una parada de entrega y el camion debe permanecer detenido:
+  const puntoInmediato = itinerario[indiceClamp + 1];
+  const esParadaDetenido = puntoInmediato.enParada && haversineKm(puntoActual, puntoInmediato) < 0.001;
+  if (esParadaDetenido) {
+    return {
+      completado: false,
+      siguienteIndice: indiceClamp + 1,
+      odometroKm: odometroActualKm,
+      gps: {
+        lat: puntoInmediato.lat,
+        lon: puntoInmediato.lon,
+        velocidadKmh: 0,
+        rumboGrados: 0,
+        ignicionEncendida: false,
+      },
+      enParadaEntrega: true,
+    };
+  }
+
+  // Variacion realista de velocidad (+/- 3 km/h pseudo-aleatoria)
+  const ruidoVelocidad = (Math.random() * 6 - 3);
+  const velocidadObjetivo = Math.max(25, VELOCIDAD_URBANA_OBJETIVO_KMH + ruidoVelocidad);
+  const distanciaMaximaKm = velocidadObjetivo * (cicloSegundos / 3600);
+
+  let distanciaAcumuladaKm = 0;
+  let cursor = indiceClamp;
+
+  while (cursor < itinerario.length - 1) {
+    const p1 = itinerario[cursor];
+    const p2 = itinerario[cursor + 1];
+
+    // Si encontramos una parada en el camino, nos detenemos en ella
+    if (p2.enParada && cursor > indiceClamp) {
+      break;
+    }
+
+    const dTramo = haversineKm(p1, p2);
+    if (distanciaAcumuladaKm + dTramo > distanciaMaximaKm && cursor > indiceClamp) {
+      break;
+    }
+
+    distanciaAcumuladaKm += dTramo;
+    cursor += 1;
+  }
+
+  const puntoAlcanzado = itinerario[cursor];
+  const completado = cursor >= itinerario.length - 1;
+  const velocidadEfectivaKmh = completado && distanciaAcumuladaKm === 0
+    ? 0
+    : Math.max(15, Math.round(distanciaAcumuladaKm / (cicloSegundos / 3600) || velocidadObjetivo));
 
   return {
-    completado: false,
-    siguienteIndice,
-    odometroKm: detenido ? odometroActualKm : odometroActualKm + distanciaKm,
+    completado,
+    siguienteIndice: completado ? null : cursor,
+    odometroKm: odometroActualKm + distanciaAcumuladaKm,
     gps: {
-      lat: puntoSiguiente.lat,
-      lon: puntoSiguiente.lon,
-      velocidadKmh: detenido ? 0 : distanciaKm / (cicloSegundos / 3600),
-      rumboGrados: detenido ? 0 : rumbo(puntoActual, puntoSiguiente),
-      ignicionEncendida: !detenido,
+      lat: puntoAlcanzado.lat,
+      lon: puntoAlcanzado.lon,
+      velocidadKmh: velocidadEfectivaKmh,
+      rumboGrados: rumbo(puntoActual, puntoAlcanzado),
+      ignicionEncendida: true,
     },
-    enParadaEntrega: puntoSiguiente.enParada,
+    enParadaEntrega: puntoAlcanzado.enParada,
   };
 }

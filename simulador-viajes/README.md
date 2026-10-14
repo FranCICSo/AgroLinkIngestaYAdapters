@@ -9,6 +9,10 @@ vista, este proceso es indistinguible de un dispositivo de campo.
 Especificación completa: [`../specs/009-simulador-viajes/`](../specs/009-simulador-viajes/)
 (`spec.md`, `plan.md`, `data-model.md`, `quickstart.md`).
 
+Las rutas (`simulador.ruta`) ya no se arman a mano con un `INSERT` — ver
+[`../specs/011-generar-ruta-simulada/`](../specs/011-generar-ruta-simulada/) y la sección
+["Generar una ruta nueva"](#generar-una-ruta-nueva-sin-sql-a-mano) más abajo.
+
 ## Arranque rápido
 
 ```bash
@@ -30,6 +34,46 @@ npm start
 Ver `deploy/README.md` §2.7.2 y §7.2 para levantarlo contra el stack completo (Docker) o
 desplegarlo en la VM de producción.
 
+## Generar una ruta nueva (sin SQL a mano)
+
+Feature [011-generar-ruta-simulada](../specs/011-generar-ruta-simulada/): dado un origen y un
+destino (lat/lon, y opcionalmente paradas intermedias), traza el recorrido sobre calles reales
+vía [OSRM](https://project-osrm.org/) y persiste la fila en `simulador.ruta` en una sola llamada
+— reemplaza el `INSERT` manual con el array de puntos copiado a ojo.
+
+Requiere OSRM corriendo (self-hosted, parte del mismo proceso de deploy — ver
+`deploy/README.md` §2.7.3):
+
+```bash
+make osrm        # desde la raíz del repo — ya incluido en `make simulador`
+```
+
+**Por CLI** (`npm run crear-ruta --`, ver
+[`contracts/crear-ruta-cli.md`](../specs/011-generar-ruta-simulada/contracts/crear-ruta-cli.md)):
+
+```bash
+cd simulador-viajes
+npm run crear-ruta -- \
+  --nombre "Depósito -> Cliente" \
+  --origenLat -34.60 --origenLon -58.40 \
+  --destinoLat -34.62 --destinoLon -58.42 \
+  --paradas '[{"lat":-34.61,"lon":-58.41,"duracionMin":5}]'
+```
+
+Imprime el `id` de la fila nueva (usarlo en el paso 3 de ["Agregar un camión
+nuevo"](#agregar-un-camión-nuevo) para crear el viaje que lo pone en marcha).
+
+**Por HTTP** (`POST /rutas`, ver
+[`contracts/rutas-http-api.md`](../specs/011-generar-ruta-simulada/contracts/rutas-http-api.md)):
+sólo alcanzable dentro de la red de Docker compose (nunca publicado al host ni expuesto al
+frontend de AgroLink); requiere arrancar el proceso con `PUERTO_HTTP` definida (ver Variables de
+entorno, más abajo). Ninguna de las dos vías duplica lógica: ambas llaman al mismo
+`routeGenerationService`.
+
+Si OSRM no puede resolver un camino entre origen y destino (o no responde), la generación se
+rechaza con un error claro — no hay modo de interpolación en línea recta como alternativa, ni
+se persiste una fila a medias.
+
 ## Cómo administrar la flota (agregar/editar camiones)
 
 Toda la configuración vive en el schema Postgres `simulador` (tablas `camion`, `ruta`,
@@ -49,7 +93,9 @@ docker compose exec -T timescaledb psql -U postgres -d agrolink_telemetria \
   -v ON_ERROR_STOP=1 -f - < seed/simulador-camion-2.sql
 ```
 
-O a mano, directo por `psql`:
+O a mano, directo por `psql` (la ruta del paso 2 es más fácil de generar con
+[`npm run crear-ruta`](#generar-una-ruta-nueva-sin-sql-a-mano) en vez de escribir el array de
+puntos a ojo — acá se muestra el `INSERT` manual sólo como alternativa de referencia):
 
 ```sql
 -- 1. El camión. El id DEBE caer en 900001-900999 (nunca puede coincidir con un IMEI real).
@@ -62,6 +108,9 @@ VALUES ('900004', 'Camion 4', 'seca', 12000, true);
 -- VALUES ('900004', 'Camion 4 - refrigerado', 'refrigerada', 2.5, 87, 12000, true);
 
 -- 2. Su ruta: array ordenado de puntos GPS + índices marcados como parada de entrega.
+-- Preferir `npm run crear-ruta -- --nombre "Deposito -> Cliente" --origenLat ... --destinoLat ...`
+-- (traza sobre calles reales vía OSRM); este INSERT manual queda como alternativa si no hay
+-- OSRM disponible o se quiere una ruta con puntos exactos elegidos a mano.
 INSERT INTO simulador.ruta (nombre, puntos, paradas)
 VALUES (
   'Depósito -> Cliente',
@@ -86,6 +135,7 @@ Dentro del ciclo siguiente (≤60 s) el camión nuevo ya está emitiendo tramas.
 | Cambiar el tipo de carga en caliente | `UPDATE simulador.camion SET tipo_carga='refrigerada', setpoint_temp_c=2.5, setpoint_humedad_pct=87 WHERE id='900004';` |
 | Reutilizar una ruta en varios camiones | Varios `viaje` pueden apuntar al mismo `ruta_id` — no hace falta duplicar la ruta. |
 | Ver solo las lecturas simuladas | `SELECT * FROM telemetria.lectura_telemetria WHERE dispositivo_id LIKE '900%';` (rango reservado, nunca se mezcla con IDs reales) |
+| Ver qué `dispositivoId` tienen un camión activo detrás (y si va a responder el endpoint de estado del backend) | `npm run listar-camiones` — ver [`../docs/handoff/dispositivos-simulados.md`](../docs/handoff/dispositivos-simulados.md) |
 
 ### Forzar una falla de carga refrigerada (para demos)
 
@@ -132,6 +182,8 @@ Ver `deploy/.env.example`. Las relevantes para este proceso:
 | `DB_HOST` / `DB_PORT` / `POSTGRES_DB` | — | Conexión a la misma TimescaleDB que usa el receptor |
 | `SIMULADOR_VIAJES_DB_USER` / `SIMULADOR_VIAJES_DB_PASSWORD` | — | Rol con acceso solo al schema `simulador` (sin permisos sobre `telemetria`) |
 | `SIMULADOR_CICLO_MS` | `60000` | Cadencia de emisión — bajarlo (ej. `5000`) es útil para probar más rápido en desarrollo |
+| `OSRM_BASE_URL` | `http://localhost:5000` (`http://osrm:5000` en Docker compose) | Servidor OSRM usado por `crear-ruta`/`POST /rutas` para trazar sobre calles reales (feature 011) |
+| `PUERTO_HTTP` | _(sin definir)_ | Opcional: si se define, levanta el endpoint `POST /rutas` en ese puerto. Sin ella, sólo queda disponible el CLI. **Nunca** publicar este puerto en `deploy/compose.yaml` (research.md D-04 de la feature 011) |
 
 ## Tests
 
@@ -144,7 +196,9 @@ Cobertura: avance de ruta y paradas (`test/domain/avanceRuta.test.js`), síntesi
 compresor (`test/domain/sintesisBle.test.js`), construcción de trama y checksum
 (`test/protocol/frameBuilder.test.js`), reintentos ante falta de ACK
 (`test/net/udpClient.test.js`), validación del rango de `id` reservado
-(`test/db/flotaRepository.test.js`).
+(`test/db/flotaRepository.test.js`), generación de rutas vía OSRM — éxito, distancia trivial,
+OSRM sin ruta/caído (`test/services/routeGenerationService.test.js`), y persistencia/nombre
+duplicado (`test/db/rutaRepository.test.js`).
 
 ## Diseño interno (por qué está armado así)
 
@@ -157,3 +211,8 @@ compresor (`test/domain/sintesisBle.test.js`), construcción de trama y checksum
 - **RPM/combustible/presión de aceite se sintetizan** (`src/domain/sintesisCan.js`) porque
   el equipo real usado para capturar la ruta de referencia del camión 1 no los reportaba de
   forma confiable (confirmado decodificando tramas de campo byte a byte).
+- **`crear-ruta` (CLI) y `POST /rutas` (HTTP) son wrappers delgados sobre el mismo
+  `routeGenerationService`** (`src/services/routeGenerationService.js`): ninguno de los dos
+  duplica la lógica de validar, llamar a OSRM y persistir — ver
+  `specs/011-generar-ruta-simulada/research.md` D-05. El endpoint HTTP nunca se publica al
+  host (D-04): sólo lo llaman procesos dentro de la misma red de Docker compose.
