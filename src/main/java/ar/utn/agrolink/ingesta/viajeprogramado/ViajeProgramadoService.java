@@ -31,6 +31,12 @@ public class ViajeProgramadoService {
         if (!DispositivosSimuladosConocidos.esSimulado(iotDeviceId)) {
             throw new DispositivoNoSimuladoException(iotDeviceId);
         }
+        if (!tieneCoordenadas(request)) {
+            // Edge case (spec.md): sin recorrido geocodificado no hay nada que simular. Se
+            // rechaza explicito en 400 en vez de dejar que la falta de origen/destino termine
+            // en un NullPointerException mas abajo.
+            throw new CoordenadasNoDisponiblesException(request.tripCode());
+        }
 
         ViajeProgramado viajeDeOtroDispositivo = repository.findByTripCode(request.tripCode())
                 .filter(v -> !v.getIotDeviceId().equals(iotDeviceId))
@@ -121,5 +127,14 @@ public class ViajeProgramadoService {
 
     private String nombreRuta(String tripCode) {
         return "Viaje " + tripCode;
+    }
+
+    private boolean tieneCoordenadas(ProgramarViajeRequest request) {
+        return request.origen() != null
+                && request.destino() != null
+                && request.origen().lat() != null
+                && request.origen().lon() != null
+                && request.destino().lat() != null
+                && request.destino().lon() != null;
     }
 }

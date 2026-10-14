@@ -73,6 +73,23 @@ class ViajeProgramadoControllerIntegrationTest {
     }
 
     @Test
+    void post_sinCoordenadas_devuelve400() throws Exception {
+        when(service.programar(eq("900001"), any()))
+                .thenThrow(new CoordenadasNoDisponiblesException("T-1"));
+
+        mockMvc.perform(post("/api/v1/vehiculos/900001/viajes-simulados")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "tripCode": "T-1",
+                                  "estimatedStartDateTime": "2026-10-12T08:00:00",
+                                  "origen": { "lat": -34.6467, "lon": -58.4894 },
+                                  "destino": null
+                                }"""))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     void put_filaPendiente_devuelve200() throws Exception {
         when(service.reprogramar(eq("900001"), eq("T-1"), any()))
                 .thenReturn(new ViajeProgramadoDto("T-1", ViajeProgramado.PENDIENTE, LocalDateTime.now()));
