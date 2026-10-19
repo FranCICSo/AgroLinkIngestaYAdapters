@@ -4,7 +4,10 @@
 
 **Created**: 2026-10-10
 
-**Status**: Draft
+**Status**: Partially superseded by `specs/014-simulacion-ruta-del-viaje` (2026-10-18): the
+scheduled mode (wait for `estimatedStartDateTime`, reprogramación, cancelación of pending
+schedules) is replaced by an immediate start on notice from AgroLinkBackend plus a stop
+operation. FR-001 and FR-006 remain in force via 014.
 
 **Input**: User description: "necesito que cuando se de de alta un viaje de los dispositivos
 simulados (dispositivo id con nombre conteniendo la cadena 'demo' o del rango 90000n) se comience
