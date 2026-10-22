@@ -19,7 +19,7 @@ else
     endif
 endif
 
-.PHONY: help dev start stack docker-up docker-down dc-up dc-down db-reset timescaledb receptor ingesta seed-telemetry simulador osrm
+.PHONY: help dev start stack docker-up docker-down dc-up dc-down db-reset migrate timescaledb receptor ingesta seed-telemetry simulador osrm
 
 help:
 	@echo "=========================================================="
@@ -29,11 +29,15 @@ help:
 	@echo "  make stack        - Levanta el stack COMPLETO en Docker (db + receptor + ingesta)"
 	@echo "  make docker-down  - Detiene todos los contenedores Docker"
 	@echo "  make db-reset     - Borra los datos de TimescaleDB y reinicia los contenedores"
+	@echo "                      (aplica las migraciones al final, ver 'make migrate')"
+	@echo "  make migrate      - Aplica las migraciones pendientes de deploy/migrations/ a"
+	@echo "                      TimescaleDB local (idempotente, mismo script que el CI/CD)"
 	@echo "  make timescaledb  - Levanta solo TimescaleDB (Docker)"
 	@echo "  make receptor     - Levanta solo el receptor UDP rinho-receptor (Docker)"
 	@echo "  make ingesta      - Inicia agrolink-ingesta localmente (Spring Boot), contra"
 	@echo "                      TimescaleDB en Docker; detiene la version dockerizada primero"
-	@echo "                      para no chocar de puerto"
+	@echo "                      para no chocar de puerto. Apunta al simulador por la IP de"
+	@echo "                      su contenedor (solo Linux) salvo SIMULADOR_VIAJES_BASE_URL"
 	@echo "  make seed-telemetry - Inserta datos de telemetria de ejemplo (dispositivo"
 	@echo "                      860693084873877) en TimescaleDB local. Nunca corre en"
 	@echo "                      produccion (no forma parte de deploy/db/)."
@@ -41,6 +45,7 @@ help:
 	@echo "                      schema + camion 1 de referencia si hace falta, y lo corre"
 	@echo "                      contra el receptor local (nunca produccion por defecto)."
 	@echo "                      Tambien levanta OSRM (feature 011, ver 'make osrm')."
+	@echo "                      Buildea la imagen desde el codigo local (--build)."
 	@echo "  make osrm         - Levanta el servicio OSRM self-hosted (feature 011): descarga"
 	@echo "                      y procesa el extracto de OSRM_REGION (default: argentina) la"
 	@echo "                      primera vez (tarda varios minutos y cientos de MB), despues"
@@ -54,17 +59,31 @@ stack:
 	@echo "🚀 Levantando el stack completo en Docker (timescaledb + rinho-receptor + agrolink-ingesta)..."
 	@cd "$(DEPLOY_DIR)" && docker compose up -d
 
+# `--profile simulador` en los `down`: sin el, osrm y simulador-viajes sobreviven pero la
+# red deploy_default se borra, y el siguiente `up` falla con "network ... not found" porque
+# compose reusa esos contenedores apuntando a la red vieja. En `down` el profile solo amplia
+# lo que se baja, nunca levanta nada.
 docker-down: dc-down
 dc-down:
 	@echo "🛑 Deteniendo todos los servicios de Docker..."
-	@cd "$(DEPLOY_DIR)" && docker compose down
+	@cd "$(DEPLOY_DIR)" && docker compose --profile simulador down
 
 # Reinicio completo de TimescaleDB (borra el volumen, no hay bind mount que limpiar a mano)
 db-reset:
 	@echo "⚠️  Borrando datos de TimescaleDB y reiniciando contenedores..."
-	@cd "$(DEPLOY_DIR)" && docker compose down --volumes --remove-orphans
+	@cd "$(DEPLOY_DIR)" && docker compose --profile simulador down --volumes --remove-orphans
 	@cd "$(DEPLOY_DIR)" && docker compose up -d --wait timescaledb rinho-receptor
+	@$(MAKE) --no-print-directory migrate
 	@echo "✅ Base de datos reiniciada correctamente."
+
+# Aplica deploy/migrations/ con el mismo script que el CI/CD (trackeado en
+# public.schema_migrations, cada archivo corre a lo sumo una vez). Hace falta tras un
+# db-reset: deploy/db/ solo recrea el esquema base, no lo agregado por migraciones (p. ej.
+# ingesta.viaje_programado, 007).
+migrate: timescaledb
+	@echo "🗄️  Aplicando migraciones pendientes de $(DEPLOY_DIR)/migrations..."
+	@set -a; . ./$(DEPLOY_DIR)/.env; set +a; \
+	 $(DEPLOY_DIR)/scripts/apply-migrations.sh $(DEPLOY_DIR)/compose.yaml $(DEPLOY_DIR)/migrations POSTGRES_DB
 
 timescaledb:
 	@echo "🐘 Levantando TimescaleDB..."
@@ -133,16 +152,32 @@ simulador: timescaledb receptor osrm
 	 docker compose exec -T timescaledb \
 	   psql -U postgres -d "$${POSTGRES_DB}" -v ON_ERROR_STOP=1 -f - < seed/simulador-camion-1.sql
 	@echo "🚚 Levantando el simulador de viajes (camion 900001, apunta a local por defecto)..."
-	@cd "$(DEPLOY_DIR)" && docker compose --profile simulador up -d simulador-viajes
+	@# --build: sin el, compose reusa la imagen cacheada/pulleada (ghcr ...:latest) aunque
+	@# el codigo de simulador-viajes/ haya cambiado. Con cache de capas, sin cambios es rapido.
+	@cd "$(DEPLOY_DIR)" && docker compose --profile simulador up -d --build simulador-viajes
 	@echo "✅ Simulador corriendo. Logs: cd $(DEPLOY_DIR) && docker compose logs -f simulador-viajes"
 
 # Corre agrolink-ingesta localmente (Spring Boot) contra el TimescaleDB de Docker.
 # Detiene el contenedor dockerizado del mismo servicio primero: comparten los mismos
 # puertos (REPORTES_HTTP_PORT / VEHICULO_ESTADO_HTTP_PORT) y chocarian si ambos corren.
+# El default de SIMULADOR_VIAJES_BASE_URL (http://simulador-viajes:8090) solo resuelve dentro
+# de la red de compose, y simulador-viajes no publica puertos (011 research.md D-04). Si no
+# viene definida, se usa la IP del contenedor en la red de Docker: alcanzable desde el host
+# solo en Linux (en macOS/Windows definirla a mano). La IP cambia al recrear el contenedor,
+# por eso se resuelve en cada `make ingesta`.
 ingesta: timescaledb
 	@echo "☕ Iniciando agrolink-ingesta (Spring Boot, local)..."
 	@cd "$(DEPLOY_DIR)" && docker compose stop agrolink-ingesta >/dev/null 2>&1 || true
 	@set -a; . ./$(DEPLOY_DIR)/.env; set +a; \
+	 if [ -z "$${SIMULADOR_VIAJES_BASE_URL:-}" ]; then \
+	   SIM_IP=$$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' simulador-viajes 2>/dev/null); \
+	   if [ -n "$$SIM_IP" ] && [ -n "$${SIMULADOR_PUERTO_HTTP:-}" ]; then \
+	     export SIMULADOR_VIAJES_BASE_URL="http://$$SIM_IP:$${SIMULADOR_PUERTO_HTTP}"; \
+	     echo "🚚 simulador-viajes en $$SIMULADOR_VIAJES_BASE_URL (IP del contenedor)"; \
+	   else \
+	     echo "⚠️  simulador-viajes no esta corriendo o sin SIMULADOR_PUERTO_HTTP: los viajes simulados fallaran ('make simulador')"; \
+	   fi; \
+	 fi; \
 	 DB_HOST=localhost DB_PORT=5432 \
 	 SERVER_PORT=$${REPORTES_HTTP_PORT:-8080} \
 	 VEHICULO_ESTADO_HTTP_PORT=$${VEHICULO_ESTADO_HTTP_PORT:-8082} \

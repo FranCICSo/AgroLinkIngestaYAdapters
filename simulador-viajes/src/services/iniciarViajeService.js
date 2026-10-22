@@ -21,9 +21,12 @@ export async function iniciarViajeParaCamion(pool, { camion, rutaId }) {
 
   await finalizarViajesEnCurso(pool, camion.id);
 
+  // Un odometro explicito en el request (p. ej. el que AgroLinkBackend ancla al iniciar el
+  // viaje) manda sobre el que el simulador traia acumulado: la telemetria tiene que contar
+  // desde el valor que ve el backend, no desde el ultimo viaje simulado de este camion.
   const odometroPrevio = await obtenerUltimoOdometro(pool, camion.id);
   const odometroActualKm =
-    odometroPrevio ?? existente?.odometro_inicial_km ?? camion.odometroInicialKm ?? 0;
+    camion.odometroInicialKm ?? odometroPrevio ?? existente?.odometro_inicial_km ?? 0;
 
   const viaje = await insertarViaje(pool, { camionId: camion.id, rutaId, odometroActualKm });
 

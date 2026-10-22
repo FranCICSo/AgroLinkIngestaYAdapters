@@ -1,5 +1,6 @@
 package ar.utn.agrolink.ingesta.viajeprogramado;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import java.time.Duration;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -64,7 +65,7 @@ public class SimuladorViajesClient {
                 viajeProgramado.getNombreRuta(),
                 new PuntoRequest(viajeProgramado.getOrigenLat(), viajeProgramado.getOrigenLon()),
                 new PuntoRequest(viajeProgramado.getDestinoLat(), viajeProgramado.getDestinoLon()),
-                new CamionRequest(viajeProgramado.getIotDeviceId()));
+                new CamionRequest(viajeProgramado.getIotDeviceId(), viajeProgramado.getOdometroInicialKm()));
     }
 
     private record RutaRequest(String nombre, PuntoRequest origen, PuntoRequest destino, CamionRequest camion) {
@@ -73,6 +74,8 @@ public class SimuladorViajesClient {
     private record PuntoRequest(java.math.BigDecimal lat, java.math.BigDecimal lon) {
     }
 
-    private record CamionRequest(String id) {
+    // odometroInicialKm null se omite: el simulador sigue desde el ultimo odometro del camion.
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private record CamionRequest(String id, java.math.BigDecimal odometroInicialKm) {
     }
 }
