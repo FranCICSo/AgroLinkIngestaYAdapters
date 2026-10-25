@@ -11,10 +11,10 @@ const REQUIRED_VARS = [
   'SIMULADOR_VIAJES_DB_PASSWORD',
 ];
 
-// Default self-hosted (research.md D-04/Assumptions de la feature 011): el demo server
-// publico (router.project-osrm.org) queda como opcion manual solo para desarrollo local
-// temprano, nunca como default, por su rate limiting y falta de garantia de disponibilidad.
-const OSRM_BASE_URL_DEFAULT = 'http://localhost:5000';
+// Demo server publico de OSRM: la imagen osrm/osrm-backend no corre en la VM de produccion
+// (ARM), asi que no se opera un OSRM self-hosted. Tiene rate limiting (~1 req/s) y sin
+// garantia de disponibilidad, aceptable para la escala de esta PoC (una ruta por viaje).
+const OSRM_BASE_URL_DEFAULT = 'https://router.project-osrm.org';
 
 function readInt(name, value, fallback) {
   if (value === undefined || value === '') return fallback;

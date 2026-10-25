@@ -2,11 +2,6 @@
 
 DEPLOY_DIR ?= deploy
 
-# Feature 011-generar-ruta-simulada (research.md D-08): region de OpenStreetMap (Geofabrik,
-# carpeta south-america) que procesa `make osrm`. Pisable con `make osrm OSRM_REGION=otra`.
-OSRM_REGION ?= argentina
-OSRM_DATA_DIR ?= $(DEPLOY_DIR)/osrm-data
-
 # Deteccion de Sistema Operativo
 ifeq ($(OS),Windows_NT)
     DETECTED_OS := Windows
@@ -19,7 +14,7 @@ else
     endif
 endif
 
-.PHONY: help dev start stack docker-up docker-down dc-up dc-down db-reset migrate timescaledb receptor ingesta seed-telemetry simulador osrm
+.PHONY: help dev start stack docker-up docker-down dc-up dc-down db-reset migrate timescaledb receptor ingesta seed-telemetry simulador
 
 help:
 	@echo "=========================================================="
@@ -38,18 +33,15 @@ help:
 	@echo "                      TimescaleDB en Docker; detiene la version dockerizada primero"
 	@echo "                      para no chocar de puerto. Apunta al simulador por la IP de"
 	@echo "                      su contenedor (solo Linux) salvo SIMULADOR_VIAJES_BASE_URL"
+	@echo "                      Aplica antes las migraciones pendientes ('make migrate')."
 	@echo "  make seed-telemetry - Inserta datos de telemetria de ejemplo (dispositivo"
 	@echo "                      860693084873877) en TimescaleDB local. Nunca corre en"
 	@echo "                      produccion (no forma parte de deploy/db/)."
 	@echo "  make simulador    - Levanta el simulador de viajes (feature 009): aplica su"
 	@echo "                      schema + camion 1 de referencia si hace falta, y lo corre"
 	@echo "                      contra el receptor local (nunca produccion por defecto)."
-	@echo "                      Tambien levanta OSRM (feature 011, ver 'make osrm')."
+	@echo "                      Traza rutas con el demo server publico de OSRM (OSRM_BASE_URL)."
 	@echo "                      Buildea la imagen desde el codigo local (--build)."
-	@echo "  make osrm         - Levanta el servicio OSRM self-hosted (feature 011): descarga"
-	@echo "                      y procesa el extracto de OSRM_REGION (default: argentina) la"
-	@echo "                      primera vez (tarda varios minutos y cientos de MB), despues"
-	@echo "                      es idempotente. Ya incluido en 'make simulador'."
 	@echo "=========================================================="
 
 # Docker Compose: stack completo (alias docker-up / stack)
@@ -59,7 +51,7 @@ stack:
 	@echo "🚀 Levantando el stack completo en Docker (timescaledb + rinho-receptor + agrolink-ingesta)..."
 	@cd "$(DEPLOY_DIR)" && docker compose up -d
 
-# `--profile simulador` en los `down`: sin el, osrm y simulador-viajes sobreviven pero la
+# `--profile simulador` en los `down`: sin el, simulador-viajes sobrevive pero la
 # red deploy_default se borra, y el siguiente `up` falla con "network ... not found" porque
 # compose reusa esos contenedores apuntando a la red vieja. En `down` el profile solo amplia
 # lo que se baja, nunca levanta nada.
@@ -105,46 +97,15 @@ seed-telemetry: timescaledb
 	   -v ON_ERROR_STOP=1 -f - < seed/seed-demo-telemetry.sql
 	@echo "✅ Datos de telemetria de ejemplo insertados (o ya existian)."
 
-# OSRM self-hosted (feature 011-generar-ruta-simulada, research.md D-08): levantarlo y
-# operarlo es parte del alcance de esta feature (proyecto de tesis/PoC, sin otro equipo que
-# ya lo opere como infraestructura externa - ver spec.md § Clarifications). Descarga el
-# extracto de OSM_REGION desde Geofabrik y lo preprocesa (osrm-extract/partition/customize)
-# la primera vez unicamente - ambos pasos son costosos (cientos de MB, varios minutos) pero
-# se saltean si los archivos ya existen, mismo principio de idempotencia que el resto de
-# este Makefile.
-osrm:
-	@mkdir -p "$(OSRM_DATA_DIR)"
-	@if [ ! -f "$(OSRM_DATA_DIR)/$(OSRM_REGION)-latest.osm.pbf" ]; then \
-	  echo "⬇️  Descargando extracto OSM de $(OSRM_REGION) (Geofabrik, puede tardar varios minutos)..."; \
-	  curl -fL -o "$(OSRM_DATA_DIR)/$(OSRM_REGION)-latest.osm.pbf" \
-	    "https://download.geofabrik.de/south-america/$(OSRM_REGION)-latest.osm.pbf"; \
-	else \
-	  echo "✅ Extracto OSM de $(OSRM_REGION) ya descargado, se omite."; \
-	fi
-	@if [ ! -f "$(OSRM_DATA_DIR)/$(OSRM_REGION)-latest.osrm" ]; then \
-	  echo "⚙️  Procesando el extracto (osrm-extract/partition/customize, solo la primera vez)..."; \
-	  docker run --rm -t -v "$(abspath $(OSRM_DATA_DIR))":/data osrm/osrm-backend \
-	    osrm-extract -p /opt/car.lua "/data/$(OSRM_REGION)-latest.osm.pbf" && \
-	  docker run --rm -t -v "$(abspath $(OSRM_DATA_DIR))":/data osrm/osrm-backend \
-	    osrm-partition "/data/$(OSRM_REGION)-latest.osrm" && \
-	  docker run --rm -t -v "$(abspath $(OSRM_DATA_DIR))":/data osrm/osrm-backend \
-	    osrm-customize "/data/$(OSRM_REGION)-latest.osrm"; \
-	else \
-	  echo "✅ Extracto de $(OSRM_REGION) ya procesado, se omite."; \
-	fi
-	@echo "🗺️  Levantando el servicio OSRM (puerto interno, no publicado al host)..."
-	@cd "$(DEPLOY_DIR)" && OSRM_REGION=$(OSRM_REGION) docker compose --profile simulador up -d osrm
-	@echo "✅ OSRM corriendo. Logs: cd $(DEPLOY_DIR) && docker compose logs -f osrm"
-
 # Simulador de viajes (feature 009-simulador-viajes): camiones ficticios que envian
 # telemetria real por UDP al receptor. Vive en profiles: ["simulador"] del compose, asi que
 # nunca arranca con `docker compose up`/`make stack` a secas - solo con este target.
 # Aplica su schema (deploy/db/03-schema-simulador.sql) y el camion 1 de referencia
 # (deploy/seed/simulador-camion-1.sql) si todavia no existen - ambos scripts son
-# idempotentes, se pueden re-aplicar sin duplicar nada. Depende de `osrm` (feature 011):
-# la generacion de rutas (`npm run crear-ruta`/`POST /rutas`) la necesita para trazar sobre
-# calles reales.
-simulador: timescaledb receptor osrm
+# idempotentes, se pueden re-aplicar sin duplicar nada. La generacion de rutas
+# (`npm run crear-ruta`/`POST /rutas`, feature 011) traza sobre calles reales con el demo
+# server publico de OSRM (OSRM_BASE_URL), no con un contenedor local.
+simulador: timescaledb receptor
 	@echo "🚚 Preparando el schema del simulador y el camion 1 de referencia (si hace falta)..."
 	@cd "$(DEPLOY_DIR)" && set -a && . ./.env && set +a && \
 	 docker compose exec -T -e SIMULADOR_VIAJES_DB_PASSWORD timescaledb \
@@ -165,7 +126,9 @@ simulador: timescaledb receptor osrm
 # viene definida, se usa la IP del contenedor en la red de Docker: alcanzable desde el host
 # solo en Linux (en macOS/Windows definirla a mano). La IP cambia al recrear el contenedor,
 # por eso se resuelve en cada `make ingesta`.
-ingesta: timescaledb
+# Depende de `migrate`: el ORM no toca el DDL (ddl-auto: none), asi que una migracion nueva
+# sin aplicar rompe ingesta en runtime (columna inexistente). Es idempotente y rapido.
+ingesta: migrate
 	@echo "☕ Iniciando agrolink-ingesta (Spring Boot, local)..."
 	@cd "$(DEPLOY_DIR)" && docker compose stop agrolink-ingesta >/dev/null 2>&1 || true
 	@set -a; . ./$(DEPLOY_DIR)/.env; set +a; \

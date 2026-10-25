@@ -3,10 +3,6 @@
 # Secretos reales del stack (Principio VI: nunca commitear credenciales)
 deploy/.env
 
-# Dataset de OSRM (feature 011-generar-ruta-simulada): extracto OSM descargado + archivos
-# .osrm preprocesados por `make osrm`, nunca se commitea (son cientos de MB, regenerables).
-deploy/osrm-data/
-
 # Node.js (rinho-receptor)
 node_modules/
 rinho-receptor/coverage/
