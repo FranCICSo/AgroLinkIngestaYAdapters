@@ -71,3 +71,18 @@ test('reusa un camion existente sin reinsertarlo y cierra su viaje previo', asyn
   const insertViaje = pool.llamadas.find((l) => /INSERT INTO simulador\.viaje/.test(l.sql));
   assert.equal(insertViaje.params[2], 345.6, 'debe continuar desde el ultimo odometro conocido');
 });
+
+test('un odometro explicito en el request manda sobre el ultimo odometro del simulador', async () => {
+  const pool = fakePool({
+    camionExistente: { id: 'tel-demo-003', nombre: 'Camion demo', odometro_inicial_km: 0 },
+    ultimoOdometro: 345.6,
+  });
+
+  await iniciarViajeParaCamion(pool, {
+    camion: { id: 'tel-demo-003', odometroInicialKm: 184400 },
+    rutaId: 5,
+  });
+
+  const insertViaje = pool.llamadas.find((l) => /INSERT INTO simulador\.viaje/.test(l.sql));
+  assert.equal(insertViaje.params[2], 184400);
+});

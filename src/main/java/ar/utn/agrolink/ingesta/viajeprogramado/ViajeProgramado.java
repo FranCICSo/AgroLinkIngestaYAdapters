@@ -53,6 +53,9 @@ public class ViajeProgramado {
     @Column(name = "nombre_ruta", nullable = false)
     private String nombreRuta;
 
+    @Column(name = "odometro_inicial_km")
+    private BigDecimal odometroInicialKm;
+
     @Column(name = "estado", nullable = false)
     private String estado;
 
@@ -125,6 +128,15 @@ public class ViajeProgramado {
 
     public String getNombreRuta() {
         return nombreRuta;
+    }
+
+    public BigDecimal getOdometroInicialKm() {
+        return odometroInicialKm;
+    }
+
+    public void setOdometroInicialKm(BigDecimal odometroInicialKm) {
+        this.odometroInicialKm = odometroInicialKm;
+        tocarActualizadoEn();
     }
 
     public String getEstado() {

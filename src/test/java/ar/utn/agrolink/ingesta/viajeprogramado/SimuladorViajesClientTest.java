@@ -1,6 +1,7 @@
 package ar.utn.agrolink.ingesta.viajeprogramado;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.jsonPath;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
@@ -41,6 +42,36 @@ class SimuladorViajesClientTest {
 
         assertThat(resultado.exito()).isTrue();
         assertThat(resultado.detalleError()).isNull();
+    }
+
+    @Test
+    void arrancarViaje_conOdometroInicial_loReenviaEnElCamion() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo("/rutas")).andExpect(method(HttpMethod.POST))
+                .andExpect(jsonPath("$.camion.id").value("900001"))
+                .andExpect(jsonPath("$.camion.odometroInicialKm").value(184400))
+                .andRespond(withStatus(HttpStatus.CREATED));
+        ViajeProgramado viaje = viajeDeEjemplo();
+        viaje.setOdometroInicialKm(new BigDecimal("184400"));
+
+        SimulacionResultado resultado = new SimuladorViajesClient(builder.build()).arrancarViaje(viaje);
+
+        assertThat(resultado.exito()).isTrue();
+        server.verify();
+    }
+
+    @Test
+    void arrancarViaje_sinOdometroInicial_noMandaElCampo() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo("/rutas")).andExpect(method(HttpMethod.POST))
+                .andExpect(jsonPath("$.camion.odometroInicialKm").doesNotExist())
+                .andRespond(withStatus(HttpStatus.CREATED));
+
+        new SimuladorViajesClient(builder.build()).arrancarViaje(viajeDeEjemplo());
+
+        server.verify();
     }
 
     @Test

@@ -3,6 +3,7 @@ package ar.utn.agrolink.ingesta.viajeprogramado;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -30,7 +31,8 @@ class ViajeProgramadoServiceTest {
                 tripCode,
                 horario,
                 new PuntoDto(new BigDecimal("-34.6467"), new BigDecimal("-58.4894")),
-                new PuntoDto(new BigDecimal("-34.6037"), new BigDecimal("-58.3816")));
+                new PuntoDto(new BigDecimal("-34.6037"), new BigDecimal("-58.3816")),
+                null);
     }
 
     private ViajeProgramado viajeDe(String tripCode, String iotDeviceId, LocalDateTime horario) {
@@ -68,6 +70,25 @@ class ViajeProgramadoServiceTest {
     }
 
     @Test
+    void programar_conOdometroInicial_loGuardaParaReenviarloAlSimulador() {
+        when(repository.findByTripCode("V2B")).thenReturn(Optional.empty());
+        when(repository.findByTripCodeAndIotDeviceId("V2B", "tel-demo-003")).thenReturn(Optional.empty());
+        when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(simuladorViajesClient.arrancarViaje(any())).thenReturn(SimulacionResultado.ok());
+        ProgramarViajeRequest request = new ProgramarViajeRequest(
+                "V2B",
+                LocalDateTime.now().minusMinutes(1),
+                new PuntoDto(new BigDecimal("-34.6467"), new BigDecimal("-58.4894")),
+                new PuntoDto(new BigDecimal("-34.6037"), new BigDecimal("-58.3816")),
+                new BigDecimal("184400"));
+
+        service().programar("tel-demo-003", request);
+
+        verify(simuladorViajesClient).arrancarViaje(argThat(v ->
+                new BigDecimal("184400").equals(v.getOdometroInicialKm())));
+    }
+
+    @Test
     void programar_conDispositivoFueraDeLaListaCerrada_lanzaExcepcion() {
         assertThatThrownBy(() -> service().programar("12345", requestConHorario("V3", LocalDateTime.now())))
                 .isInstanceOf(DispositivoNoSimuladoException.class);
@@ -91,6 +112,7 @@ class ViajeProgramadoServiceTest {
                 "V-SIN-DESTINO",
                 LocalDateTime.now().plusDays(1),
                 new PuntoDto(new BigDecimal("-34.6467"), new BigDecimal("-58.4894")),
+                null,
                 null);
 
         assertThatThrownBy(() -> service().programar("900001", sinDestino))
@@ -104,7 +126,8 @@ class ViajeProgramadoServiceTest {
                 "V-LAT-NULA",
                 LocalDateTime.now().plusDays(1),
                 new PuntoDto(null, new BigDecimal("-58.4894")),
-                new PuntoDto(new BigDecimal("-34.6037"), new BigDecimal("-58.3816")));
+                new PuntoDto(new BigDecimal("-34.6037"), new BigDecimal("-58.3816")),
+                null);
 
         assertThatThrownBy(() -> service().programar("900001", latNula))
                 .isInstanceOf(CoordenadasNoDisponiblesException.class);

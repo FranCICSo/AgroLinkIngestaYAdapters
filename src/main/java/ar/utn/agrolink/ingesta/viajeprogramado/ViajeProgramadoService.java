@@ -66,6 +66,7 @@ public class ViajeProgramadoService {
         } else {
             viaje.setEstimatedStartDateTime(request.estimatedStartDateTime());
         }
+        viaje.setOdometroInicialKm(request.odometroInicialKm());
         viaje = repository.save(viaje);
 
         // FR-002a: si el horario ya paso (o es inmediato), dispara de una en vez de esperar
@@ -116,6 +117,8 @@ public class ViajeProgramadoService {
         SimulacionResultado resultado = simuladorViajesClient.arrancarViaje(viaje);
         if (resultado.exito()) {
             viaje.marcarDisparado();
+            log.info("Simulacion del viaje programado arrancada: tripCode={} iotDeviceId={}",
+                    viaje.getTripCode(), viaje.getIotDeviceId());
         } else {
             viaje.marcarError(resultado.detalleError());
             log.warn(

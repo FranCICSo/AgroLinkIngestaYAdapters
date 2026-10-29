@@ -41,12 +41,8 @@ destino (lat/lon, y opcionalmente paradas intermedias), traza el recorrido sobre
 vía [OSRM](https://project-osrm.org/) y persiste la fila en `simulador.ruta` en una sola llamada
 — reemplaza el `INSERT` manual con el array de puntos copiado a ojo.
 
-Requiere OSRM corriendo (self-hosted, parte del mismo proceso de deploy — ver
-`deploy/README.md` §2.7.3):
-
-```bash
-make osrm        # desde la raíz del repo — ya incluido en `make simulador`
-```
+Usa el demo server público de OSRM (`OSRM_BASE_URL`, default `https://router.project-osrm.org`),
+sin contenedor propio — ver `deploy/README.md` §2.7.3.
 
 **Por CLI** (`npm run crear-ruta --`, ver
 [`contracts/crear-ruta-cli.md`](../specs/011-generar-ruta-simulada/contracts/crear-ruta-cli.md)):
@@ -182,7 +178,7 @@ Ver `deploy/.env.example`. Las relevantes para este proceso:
 | `DB_HOST` / `DB_PORT` / `POSTGRES_DB` | — | Conexión a la misma TimescaleDB que usa el receptor |
 | `SIMULADOR_VIAJES_DB_USER` / `SIMULADOR_VIAJES_DB_PASSWORD` | — | Rol con acceso solo al schema `simulador` (sin permisos sobre `telemetria`) |
 | `SIMULADOR_CICLO_MS` | `60000` | Cadencia de emisión — bajarlo (ej. `5000`) es útil para probar más rápido en desarrollo |
-| `OSRM_BASE_URL` | `http://localhost:5000` (`http://osrm:5000` en Docker compose) | Servidor OSRM usado por `crear-ruta`/`POST /rutas` para trazar sobre calles reales (feature 011) |
+| `OSRM_BASE_URL` | `https://router.project-osrm.org` (demo server público) | Servidor OSRM usado por `crear-ruta`/`POST /rutas` para trazar sobre calles reales (feature 011) |
 | `PUERTO_HTTP` | _(sin definir)_ | Opcional: si se define, levanta el endpoint `POST /rutas` en ese puerto. Sin ella, sólo queda disponible el CLI. **Nunca** publicar este puerto en `deploy/compose.yaml` (research.md D-04 de la feature 011) |
 
 ## Tests

@@ -48,6 +48,13 @@ function validarCamion(camion) {
       detalle: `camion.tipoCarga debe ser uno de: ${TIPOS_CARGA_VALIDOS.join(', ')}`,
     };
   }
+  if (
+    camion.odometroInicialKm !== undefined &&
+    camion.odometroInicialKm !== null &&
+    !(Number.isFinite(camion.odometroInicialKm) && camion.odometroInicialKm >= 0)
+  ) {
+    return { valido: false, detalle: 'camion.odometroInicialKm debe ser un numero >= 0' };
+  }
   return { valido: true };
 }
 

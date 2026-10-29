@@ -218,6 +218,25 @@ test('rechaza un camion.id numerico fuera del rango reservado, sin llamar a OSRM
   assert.equal(pool.filas.length, 0);
 });
 
+test('rechaza un camion.odometroInicialKm negativo o no numerico, sin llamar a OSRM ni persistir nada', async (t) => {
+  const fetchMock = t.mock.method(globalThis, 'fetch', async () => respuestaOsrmOk());
+  const pool = fakePool();
+
+  for (const odometroInicialKm of [-1, 'abc', Number.NaN]) {
+    const resultado = await generarRuta(pool, 'http://osrm.local', {
+      nombre: 'Ruta demo F2',
+      origen: ORIGEN,
+      destino: DESTINO,
+      camion: { id: 'tel-demo-003', odometroInicialKm },
+    });
+
+    assert.equal(resultado.ok, false);
+    assert.equal(resultado.motivo, 'validacion');
+  }
+  assert.equal(fetchMock.mock.callCount(), 0);
+  assert.equal(pool.filas.length, 0);
+});
+
 test('con camion.id numerico en el rango reservado, persiste la ruta y arranca un viaje en_curso', async (t) => {
   t.mock.method(globalThis, 'fetch', async () => respuestaOsrmOk());
   const pool = fakePool();
