@@ -19,3 +19,6 @@ target/
 
 # Borradores locales (PR descriptions, notas), nunca se commitean
 .pr-drafts/
+
+# Datos OSRM preprocesados (ya no se usan: se consulta el demo server publico)
+deploy/osrm-data/

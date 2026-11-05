@@ -22,19 +22,47 @@ import org.springframework.web.bind.annotation.RestController;
 public class ViajeProgramadoController {
 
     private final ViajeProgramadoService service;
+    private final AvisoViajeSamsaraService avisoSamsara;
 
-    public ViajeProgramadoController(ViajeProgramadoService service) {
+    public ViajeProgramadoController(ViajeProgramadoService service, AvisoViajeSamsaraService avisoSamsara) {
         this.service = service;
+        this.avisoSamsara = avisoSamsara;
     }
 
     @PostMapping(
             value = "/api/v1/vehiculos/{dispositivoId}/viajes-simulados",
             consumes = MediaType.APPLICATION_JSON_VALUE,
             produces = MediaType.APPLICATION_JSON_VALUE)
-    public ResponseEntity<ViajeProgramadoDto> programar(
+    public ResponseEntity<?> programar(
             @PathVariable String dispositivoId, @RequestBody ProgramarViajeRequest request) {
+        // Feature 015 (research.md D-10): un vehiculo Samsara nunca dispara una simulacion de ruta
+        // Rinho; su aviso va al emisor Samsara, sin origen/destino ni persistencia.
+        if (VehiculosSamsaraSimulados.esSamsara(dispositivoId)) {
+            return avisoSamsara.iniciar(dispositivoId, request);
+        }
         ViajeProgramadoDto resultado = service.programar(dispositivoId, request);
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(resultado);
+    }
+
+    /**
+     * Detencion (contrato 026 v2 §3). Por ahora solo para vehiculos Samsara (feature 015): la
+     * detencion de simulaciones Rinho es de la feature 014, todavia sin implementar, y hasta entonces
+     * responde 404 como ya recibia AgroLinkBackend.
+     */
+    @PostMapping(
+            value = "/api/v1/vehiculos/{dispositivoId}/viajes-simulados/{tripCode}/detencion",
+            produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<?> detener(
+            @PathVariable String dispositivoId,
+            @PathVariable String tripCode,
+            @RequestBody(required = false) DetencionRequest request) {
+        if (!VehiculosSamsaraSimulados.esSamsara(dispositivoId)) {
+            throw new DispositivoNoSimuladoException(dispositivoId);
+        }
+        return avisoSamsara.detener(dispositivoId, tripCode, request == null ? null : request.motivo());
+    }
+
+    public record DetencionRequest(String motivo) {
     }
 
     @PutMapping(

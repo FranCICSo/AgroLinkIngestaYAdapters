@@ -25,6 +25,51 @@ function readInt(name, value, fallback) {
   return n;
 }
 
+function readNumber(name, value, fallback) {
+  if (value === undefined || value === '') return fallback;
+  const n = Number(value);
+  if (!Number.isFinite(n)) {
+    throw new Error(`Variable de entorno ${name} debe ser un numero, recibido: "${value}"`);
+  }
+  return n;
+}
+
+// Feature 015-samsara-webhook-exceso-velocidad (data-model.md §2): emisor de webhooks Samsara
+// simulado. Solo se valida si esta habilitado, para no romper el arranque de quien no lo usa.
+// Una configuracion sin sentido (umbral no positivo, tasa negativa) corta el arranque en vez de
+// emitir excesos absurdos (spec, Edge Cases).
+export function loadSamsaraConfig(env = process.env) {
+  const habilitado = readBool(env.SAMSARA_EMISOR_HABILITADO, false);
+  const config = {
+    habilitado,
+    webhookUrl: env.SAMSARA_WEBHOOK_URL || undefined,
+    limiteKmh: readNumber('SAMSARA_LIMITE_KMH', env.SAMSARA_LIMITE_KMH, 80),
+    margenKmh: readNumber('SAMSARA_MARGEN_KMH', env.SAMSARA_MARGEN_KMH, 20),
+    cicloMs: readInt('SAMSARA_CICLO_MS', env.SAMSARA_CICLO_MS, 5000),
+    excesosPorHora: readNumber('SAMSARA_EXCESOS_POR_HORA', env.SAMSARA_EXCESOS_POR_HORA, 0.3125),
+    orgId: env.SAMSARA_ORG_ID || '1001',
+    webhookId: env.SAMSARA_WEBHOOK_ID || 'agrolink-poc',
+  };
+  if (!habilitado) return config;
+
+  if (!config.webhookUrl) {
+    throw new Error('SAMSARA_EMISOR_HABILITADO=true requiere SAMSARA_WEBHOOK_URL.');
+  }
+  if (config.limiteKmh <= 0) {
+    throw new Error(`SAMSARA_LIMITE_KMH debe ser > 0, recibido: ${config.limiteKmh}`);
+  }
+  if (config.margenKmh <= 0) {
+    throw new Error(`SAMSARA_MARGEN_KMH debe ser > 0, recibido: ${config.margenKmh}`);
+  }
+  if (config.cicloMs < 1000) {
+    throw new Error(`SAMSARA_CICLO_MS debe ser >= 1000, recibido: ${config.cicloMs}`);
+  }
+  if (config.excesosPorHora < 0) {
+    throw new Error(`SAMSARA_EXCESOS_POR_HORA debe ser >= 0, recibido: ${config.excesosPorHora}`);
+  }
+  return { ...config, umbralKmh: config.limiteKmh + config.margenKmh };
+}
+
 function readBool(value, fallback) {
   if (value === undefined || value === '') return fallback;
   return value === 'true';
@@ -70,5 +115,6 @@ export function loadConfig(env = process.env) {
     // Sin default: si no esta definida, iniciarRutaHttpServer() no se levanta (FR-005 es
     // opcional para el loop de simulacion en si, T009/research.md D-04).
     puertoHttp: readInt('PUERTO_HTTP', env.PUERTO_HTTP, undefined),
+    samsara: loadSamsaraConfig(env),
   };
 }

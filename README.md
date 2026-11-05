@@ -139,7 +139,8 @@ docker compose --profile simulador up -d
 O con el `Makefile` de la raíz (`make help` para ver todos los comandos):
 
 ```bash
-make dev              # TimescaleDB + receptor en Docker, agrolink-ingesta local (Spring Boot)
+make dev              # TimescaleDB + receptor en Docker; simulador-viajes (segundo plano) y
+                      # agrolink-ingesta (Spring Boot) en esta maquina. Ctrl+C detiene ambos
 make seed-telemetry   # opcional: precarga telemetria real de ejemplo para probar sin hardware
 ```
 

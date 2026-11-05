@@ -8,6 +8,8 @@ import { sintetizarBle } from './domain/sintesisBle.js';
 import { construirTrama } from './protocol/frameBuilder.js';
 import { crearUdpClient } from './net/udpClient.js';
 import { iniciarRutaHttpServer } from './http/rutaHttpServer.js';
+import { crearEmisorSamsara } from './samsara/emisorSamsara.js';
+import { crearWebhookClient } from './samsara/webhookClient.js';
 
 // Estado que no vive en `simulador.viaje` (combustible/temperatura BLE acumulados,
 // contador de msgNum): se pierde si el proceso se reinicia, a diferencia de posicion y
@@ -166,16 +168,33 @@ async function main() {
   ejecutar();
   const intervalo = setInterval(ejecutar, config.cicloMs);
 
+  // Feature 015: emisor de webhooks Samsara, independiente de la simulacion Rinho (FR-020).
+  // Recibe los avisos de viaje por el servidor HTTP de abajo, asi que sin PUERTO_HTTP no tiene
+  // como enterarse de un viaje en curso.
+  let emisorSamsara = null;
+  if (config.samsara.habilitado) {
+    if (!config.puertoHttp) {
+      log.warn('Emisor Samsara habilitado sin PUERTO_HTTP: no puede recibir avisos de viaje');
+    }
+    emisorSamsara = crearEmisorSamsara({
+      config: config.samsara,
+      webhookClient: crearWebhookClient({ url: config.samsara.webhookUrl }),
+      log,
+    });
+    emisorSamsara.arrancar();
+  }
+
   // FR-005/T009: opcional - solo si PUERTO_HTTP esta definida. No se publica al host en
   // deploy/compose.yaml (research.md D-04, FR-006): alcanzable solo dentro de la red de
   // Docker compose, nunca directamente desde el frontend de AgroLink.
   const rutaHttpServer = config.puertoHttp
-    ? iniciarRutaHttpServer(pool, { osrmBaseUrl: config.osrmBaseUrl, puertoHttp: config.puertoHttp })
+    ? iniciarRutaHttpServer(pool, { osrmBaseUrl: config.osrmBaseUrl, puertoHttp: config.puertoHttp, emisorSamsara })
     : null;
 
   const shutdown = async (signal) => {
     log.info('Apagando simulador-viajes', { signal });
     clearInterval(intervalo);
+    emisorSamsara?.detener();
     if (rutaHttpServer) {
       await new Promise((resolve) => rutaHttpServer.close(resolve));
     }

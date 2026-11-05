@@ -28,4 +28,9 @@ public final class DispositivosSimuladosConocidos {
     public static boolean esSimulado(String iotDeviceId) {
         return iotDeviceId != null && IDS_CONOCIDOS.contains(iotDeviceId);
     }
+
+    /** Para el test de disjuncion con {@link VehiculosSamsaraSimulados} (feature 015, research.md D-12). */
+    static Set<String> ids() {
+        return IDS_CONOCIDOS;
+    }
 }

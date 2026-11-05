@@ -11,7 +11,7 @@ primero allá. Cómo lo implementa este repo: ../research.md D-01…D-12 y ../da
 `AgroLinkIngestaAdaptacion/specs/014-simulacion-ruta-del-viaje` copia este archivo sin
 reinterpretarlo; cualquier cambio se hace aquí primero y se replica allá en el mismo cambio.
 
-**Version**: 2.0.0 (reemplaza `AgroLinkIngestaAdaptacion/specs/013-autostart-simulacion-viaje/contracts/viajes-simulados-http-api.md`, v1)
+**Version**: 2.1.0 (§8, vehículos Samsara, 2026-11-04); 2.0.0 (reemplaza `AgroLinkIngestaAdaptacion/specs/013-autostart-simulacion-viaje/contracts/viajes-simulados-http-api.md`, v1)
 
 **Date**: 2026-10-21
 
@@ -214,3 +214,24 @@ Referencia de tamaño: Buenos Aires → Mendoza (~1 050 km) ≈ 15–25 k puntos
 Desplegar primero `agrolink-ingesta`/`simulador-viajes` con v2 y luego AgroLinkBackend. Mientras
 convivan versiones distintas, las respuestas `404`/`405` solo se registran; ningún viaje se ve
 afectado.
+
+---
+
+## 8. Vehículos Samsara simulados (v2.1.0, 2026-11-04)
+
+Delta retrocompatible de `AgroLinkIngestaAdaptacion/specs/015-samsara-webhook-exceso-velocidad`
+(contracts/simulacion-samsara-avisos.md). Para Rinho no cambia nada.
+
+- **Segunda lista cerrada, disjunta de la Rinho**: vehículos Samsara simulados, cuyo
+  `{dispositivoId}` es su id de vehículo en Samsara (`281474977000101`, `281474977000102`). Ningún
+  id puede estar en ambas listas. El backend publica el aviso si el dispositivo está en cualquiera.
+- **Inicio (§2) para Samsara**: el backend omite `origen`, `destino`, `polyline`, `velocidadesKmh`
+  y `odometroInicialKm` (no hay recorrido que simular) y no resuelve la ruta del viaje. Cuerpo:
+  `{ "tripCode", "estimatedStartDateTime" }`. El receptor ignora esos campos si vienen.
+  Respuestas: `202 … "estado": "ARRANCADO", "efecto": "ARRANCADA"`, `200 … "SIN_CAMBIOS"`,
+  `400 validacion` (falta `tripCode`/`estimatedStartDateTime`), `502 simulador_no_disponible`.
+  No aplican `trazado_invalido` ni `413`.
+- **Detención (§3) para Samsara**: igual que Rinho. `200 … "estado": "DETENIDO", "efecto":
+  "DETENIDA" | "SIN_SIMULACION_EN_CURSO"` o `502 simulador_no_disponible`.
+- El receptor reenvía estos avisos al emisor de webhooks Samsara de `simulador-viajes`, nunca a la
+  simulación de ruta Rinho.

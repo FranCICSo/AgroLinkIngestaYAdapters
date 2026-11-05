@@ -1,4 +1,5 @@
-// Endpoint HTTP interno POST /rutas (feature 011-generar-ruta-simulada, FR-005).
+// Endpoint HTTP interno POST /rutas (feature 011-generar-ruta-simulada, FR-005), mas los avisos
+// de viaje del emisor Samsara (feature 015): POST /samsara/viajes[/{tripCode}/detencion].
 //
 // `node:http` puro, sin framework (Express/Fastify): el repo no usa ninguno en ningun otro
 // lado (ver plan.md § Technical Context) y el endpoint no necesita mas que parsear un body
@@ -36,8 +37,46 @@ function responderJson(res, status, body) {
   res.end(JSON.stringify(body));
 }
 
-export function crearRutaHttpServer(pool, osrmBaseUrl) {
+const RUTA_DETENCION_SAMSARA = /^\/samsara\/viajes\/([^/]+)\/detencion$/;
+
+// Feature 015-samsara-webhook-exceso-velocidad: avisos de viaje para el emisor Samsara
+// (contracts/simulacion-samsara-avisos.md §3). Con el emisor deshabilitado no hay nada en
+// curso: el inicio responde 503 y la detencion 200 SIN_SIMULACION_EN_CURSO.
+async function atenderSamsara(req, res, emisorSamsara) {
+  let input;
+  try {
+    input = await leerBodyJson(req);
+  } catch {
+    responderJson(res, 400, { error: 'validacion', detalle: 'body no es JSON valido' });
+    return;
+  }
+
+  const detencion = req.url.match(RUTA_DETENCION_SAMSARA);
+  if (detencion) {
+    const tripCode = decodeURIComponent(detencion[1]);
+    if (!emisorSamsara) {
+      responderJson(res, 200, { vehiculoId: input.vehiculoId, tripCode, efecto: 'SIN_SIMULACION_EN_CURSO' });
+      return;
+    }
+    const r = await emisorSamsara.detenerViaje({ ...input, tripCode });
+    responderJson(res, r.status, r.body);
+    return;
+  }
+
+  if (!emisorSamsara) {
+    responderJson(res, 503, { error: 'emisor_deshabilitado' });
+    return;
+  }
+  const r = await emisorSamsara.iniciarViaje(input);
+  responderJson(res, r.status, r.body);
+}
+
+export function crearRutaHttpServer(pool, osrmBaseUrl, emisorSamsara = null) {
   return createServer(async (req, res) => {
+    if (req.method === 'POST' && (req.url === '/samsara/viajes' || RUTA_DETENCION_SAMSARA.test(req.url))) {
+      await atenderSamsara(req, res, emisorSamsara);
+      return;
+    }
     if (req.method !== 'POST' || req.url !== '/rutas') {
       responderJson(res, 404, { error: 'no_encontrado' });
       return;
@@ -67,8 +106,8 @@ export function crearRutaHttpServer(pool, osrmBaseUrl) {
   });
 }
 
-export function iniciarRutaHttpServer(pool, { osrmBaseUrl, puertoHttp }) {
-  const server = crearRutaHttpServer(pool, osrmBaseUrl);
+export function iniciarRutaHttpServer(pool, { osrmBaseUrl, puertoHttp, emisorSamsara = null }) {
+  const server = crearRutaHttpServer(pool, osrmBaseUrl, emisorSamsara);
   server.listen(puertoHttp, () => {
     log.info('Servidor HTTP de generacion de rutas escuchando', { puerto: puertoHttp });
   });
