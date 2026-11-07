@@ -17,10 +17,18 @@ Las rutas (`simulador.ruta`) ya no se arman a mano con un `INSERT` — ver
 
 ```bash
 make simulador          # desde la raíz del repo: aplica schema + camión 1 de referencia
-                         # (si hace falta) y levanta el contenedor contra el stack local
+                         # (si hace falta) y lo corre en esta máquina (node, en primer plano)
+                         # contra el receptor, TimescaleDB e ingesta locales
+make simulador-docker   # lo mismo, pero en un contenedor
+# make dev (raíz) también lo corre local, en segundo plano, junto con agrolink-ingesta
 ```
 
-Para desarrollo local sin Docker (contra un `rinho-receptor`/TimescaleDB ya corriendo):
+`make simulador` toma `deploy/.env` y reemplaza los hosts de compose por `localhost` (receptor en
+`UDP_PORT`, TimescaleDB en 5432, webhook Samsara en `http://localhost:${REPORTES_HTTP_PORT}`).
+`make ingesta` apunta al simulador en `http://localhost:${SIMULADOR_PUERTO_HTTP}`, salvo que el
+contenedor esté corriendo.
+
+A mano, sin el Makefile (contra un `rinho-receptor`/TimescaleDB ya corriendo):
 
 ```bash
 cd simulador-viajes
@@ -180,6 +188,36 @@ Ver `deploy/.env.example`. Las relevantes para este proceso:
 | `SIMULADOR_CICLO_MS` | `60000` | Cadencia de emisión — bajarlo (ej. `5000`) es útil para probar más rápido en desarrollo |
 | `OSRM_BASE_URL` | `https://router.project-osrm.org` (demo server público) | Servidor OSRM usado por `crear-ruta`/`POST /rutas` para trazar sobre calles reales (feature 011) |
 | `PUERTO_HTTP` | _(sin definir)_ | Opcional: si se define, levanta el endpoint `POST /rutas` en ese puerto. Sin ella, sólo queda disponible el CLI. **Nunca** publicar este puerto en `deploy/compose.yaml` (research.md D-04 de la feature 011) |
+| `SAMSARA_*` | ver abajo | Emisor de webhooks Samsara simulado (feature 015) |
+
+## Emisor de webhooks Samsara (feature 015)
+
+Ver [`../specs/015-samsara-webhook-exceso-velocidad/`](../specs/015-samsara-webhook-exceso-velocidad/).
+Simula a Samsara como **segundo proveedor de telemetría**, solo para los eventos
+`SevereSpeedingStarted` y `SevereSpeedingEnded`, sobre una lista cerrada de vehículos
+(`src/samsara/vehiculosSamsara.js`: `AGL007`/`AGL008`). Esos vehículos nunca son camiones
+Rinho: no tienen ruta ni tramas UDP.
+
+- Solo simula un vehículo **mientras tiene un viaje en curso** en AgroLink. AgroLinkBackend
+  avisa el inicio y el fin por `agrolink-ingesta`, que los reenvía a `POST /samsara/viajes` y
+  `POST /samsara/viajes/{tripCode}/detencion` de este proceso. Por eso necesita `PUERTO_HTTP`.
+- Para cada vehículo lleva una **velocidad interna**, que nunca se envía, alrededor de 72 km/h.
+  De vez en cuando aparece una ráfaga de exceso. El webhook sale **solo** cuando esa velocidad
+  cruza el umbral (`SAMSARA_LIMITE_KMH + SAMSARA_MARGEN_KMH`, por defecto 100 km/h) hacia
+  arriba (Started) o hacia abajo (Ended, como mínimo 20 s después). Al terminar el viaje, un
+  exceso abierto se cierra de inmediato.
+- Envía a `SAMSARA_WEBHOOK_URL` (`agrolink-ingesta`, red interna) y registra cada envío con su
+  resultado. Un fallo no detiene el emisor.
+- El estado vive en memoria: si el proceso se reinicia, los viajes en curso se pierden hasta el
+  próximo aviso de inicio.
+
+| Variable | Default | Uso |
+|----------|---------|-----|
+| `SAMSARA_EMISOR_HABILITADO` | `false` | `true` para activarlo, independiente de la simulación Rinho |
+| `SAMSARA_WEBHOOK_URL` | compose: `http://agrolink-ingesta:${REPORTES_HTTP_PORT}/api/v1/proveedores/samsara/webhook` | Obligatoria si está habilitado |
+| `SAMSARA_LIMITE_KMH` / `SAMSARA_MARGEN_KMH` | `80` / `20` | Umbral de exceso severo = límite + margen (ambos > 0) |
+| `SAMSARA_EXCESOS_POR_HORA` | `0.3125` | Ráfagas por hora de viaje (≈ 2,5 cada 8 h). **Para una demo corta, `6`** (~1 cada 10 min) |
+| `SAMSARA_CICLO_MS` | `5000` | Paso del modelo de velocidad (≥ 1000) |
 
 ## Tests
 

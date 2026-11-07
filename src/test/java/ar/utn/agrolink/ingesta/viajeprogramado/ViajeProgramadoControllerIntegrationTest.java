@@ -30,6 +30,8 @@ class ViajeProgramadoControllerIntegrationTest {
 
     @MockBean private ViajeProgramadoService service;
 
+    @MockBean private AvisoViajeSamsaraService avisoSamsara;
+
     private static final String BODY_ALTA = """
             {
               "tripCode": "T-1",
@@ -166,6 +168,32 @@ class ViajeProgramadoControllerIntegrationTest {
                 .when(service).cancelar("900002", "T-1");
 
         mockMvc.perform(delete("/api/v1/vehiculos/900002/viajes-simulados/T-1"))
+                .andExpect(status().isNotFound());
+    }
+
+    // Feature 015: los vehiculos Samsara van al emisor Samsara, nunca al camino Rinho.
+    @Test
+    void post_conVehiculoSamsara_despachaAlAvisoSamsaraSinCoordenadas() throws Exception {
+        when(avisoSamsara.iniciar(eq("281474977000101"), any()))
+                .thenReturn(org.springframework.http.ResponseEntity.status(202).body(java.util.Map.of("efecto", "ARRANCADA")));
+
+        mockMvc.perform(post("/api/v1/vehiculos/281474977000101/viajes-simulados")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"tripCode\": \"T-1\", \"estimatedStartDateTime\": \"2026-11-04T09:40:00\"}"))
+                .andExpect(status().isAccepted());
+        org.mockito.Mockito.verify(service, org.mockito.Mockito.never()).programar(any(), any());
+    }
+
+    @Test
+    void detencion_conVehiculoSamsara_despacha_yConOtroDispositivoDevuelve404() throws Exception {
+        when(avisoSamsara.detener("281474977000101", "T-1", "COMPLETADO"))
+                .thenReturn(org.springframework.http.ResponseEntity.ok(java.util.Map.of("efecto", "DETENIDA")));
+
+        mockMvc.perform(post("/api/v1/vehiculos/281474977000101/viajes-simulados/T-1/detencion")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"motivo\": \"COMPLETADO\"}"))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/v1/vehiculos/900001/viajes-simulados/T-1/detencion"))
                 .andExpect(status().isNotFound());
     }
 }

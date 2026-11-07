@@ -96,6 +96,15 @@ services:
       # solo dentro de esta red interna, nunca desde el frontend de AgroLink.
       OSRM_BASE_URL: ${OSRM_BASE_URL:-https://router.project-osrm.org}
       PUERTO_HTTP: ${SIMULADOR_PUERTO_HTTP:-}
+      # Feature 015-samsara-webhook-exceso-velocidad: emisor de webhooks Samsara simulado.
+      # Recibe los avisos de viaje por PUERTO_HTTP (requiere que este definida) y envia al
+      # webhook de agrolink-ingesta por la red interna.
+      SAMSARA_EMISOR_HABILITADO: ${SAMSARA_EMISOR_HABILITADO:-false}
+      SAMSARA_WEBHOOK_URL: ${SAMSARA_WEBHOOK_URL:-http://agrolink-ingesta:${REPORTES_HTTP_PORT}/api/v1/proveedores/samsara/webhook}
+      SAMSARA_LIMITE_KMH: ${SAMSARA_LIMITE_KMH:-80}
+      SAMSARA_MARGEN_KMH: ${SAMSARA_MARGEN_KMH:-20}
+      SAMSARA_CICLO_MS: ${SAMSARA_CICLO_MS:-5000}
+      SAMSARA_EXCESOS_POR_HORA: ${SAMSARA_EXCESOS_POR_HORA:-0.3125}
     # Sin `ports:`: es un cliente UDP/DB saliente, no expone nada (plan.md, Constraints).
     depends_on:
       timescaledb:
