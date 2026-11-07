@@ -1,6 +1,6 @@
 # Contract: AgroLinkBackend → frontend AgroLink — alertas de conducción
 
-**Feature**: `015-samsara-webhook-exceso-velocidad` | **Version**: 1.0.0 | **Date**: 2026-11-04 |
+**Feature**: `015-samsara-webhook-exceso-velocidad` | **Version**: 1.1.0 | **Date**: 2026-11-07 |
 **Dueño**: AgroLinkBackend
 
 Extiende la API de alertas existente (`/api/v1/alerts`). Usa la misma autenticación y el mismo
@@ -21,10 +21,14 @@ alcance por tenant (`TenantAccessGuard`) que el resto de los endpoints de alerta
     "startTime": "2026-11-04T10:05:12",
     "endTime": null,
     "durationSeconds": null,
-    "inProgress": true
+    "inProgress": true,
+    "driverName": "Juan Pérez"                  // v1.1: chofer del viaje; null sin viaje, chofer o usuario
   }
 }
 ```
+
+`driverName` (v1.1, aditivo) sale del usuario vinculado al chofer del viaje asociado al episodio,
+como "Nombre Apellido".
 
 Las fechas son locales (`TripSchedulePolicy.ZONE`), igual que el resto de `AlertResponse`. La
 `description` aclara que la severidad la determinó el proveedor (spec FR-025).
@@ -33,6 +37,11 @@ Las fechas son locales (`TripSchedulePolicy.ZONE`), igual que el resto de `Alert
 
 Devuelve todas las alertas `SPEEDING` del tenant en cualquier estado, de la más reciente a la más
 antigua, con un máximo de 200. El frontend filtra por estado, igual que en las otras pestañas.
+
+**Presentación (v1.1)**: en la pestaña "Conducción" el filtro arranca en "Todas" (activas y
+cerradas). Un `SPEEDING` con `status: "RESOLVED"` se muestra como **"Finalizada"**, no
+"Resuelta": el episodio terminó, pero eso no significa que se haya corregido una falla. El estado
+del backend no cambia.
 
 ## 3. SSE — evento `driving-alert`
 
