@@ -251,10 +251,11 @@ plena banda normal.
   un work item, así que FR-020 se cumple sin tocarlo. Se verifica que la fila nueva no agregue ese
   link.
 
-**Limitación existente que se mantiene**: `/alerts/maintenance/active` devuelve solo `ACTIVE`. Una
-alerta reconocida o resuelta se ve en su pestaña durante la sesión (por SSE), pero desaparece al
-recargar. Pasa lo mismo con el resto de las alertas de mantenimiento. Cambiarlo queda fuera de
-alcance.
+**Limitación corregida al probar**: `/alerts/maintenance/active` devolvía solo `ACTIVE`, así que una
+alerta reconocida desaparecía al recargar y "En atención" quedaba vacía. Ahora devuelve `ACTIVE` y
+`ACKNOWLEDGED` (`AlertService.getOpenMaintenanceAlerts`). Las resueltas siguen sin volver al
+recargar: se ven solo durante la sesión, por SSE. Las alertas térmicas (`/alerts/thermal/active`)
+tienen la misma limitación y no se tocan.
 
 ## D-14 — Ingesta y receptor
 

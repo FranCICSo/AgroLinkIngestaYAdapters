@@ -32,8 +32,11 @@ alcance por tenant (`TenantAccessGuard`). No agrega endpoints. Todos los cambios
 
 ## 2. `GET /api/v1/alerts/maintenance/active`
 
-Sin cambios de forma: ya devuelve las `MAINTENANCE` en `ACTIVE` del tenant, así que ahora también
-incluye las `ENGINE_OVERHEAT`. `GET /api/v1/alerts/active` y `GET /api/v1/alerts/trip/{tripId}`
+Misma forma, pero ahora devuelve las `MAINTENANCE` **abiertas** del tenant (`ACTIVE` y
+`ACKNOWLEDGED`, más recientes primero), incluidas las `ENGINE_OVERHEAT`. Antes devolvía solo
+`ACTIVE`, y una alerta reconocida desaparecía al recargar la pantalla (también las RTO). El
+endpoint y la herramienta MCP `get_maintenance_alerts` usan `AlertService.getOpenMaintenanceAlerts`,
+así que las dos devuelven lo mismo. `GET /api/v1/alerts/active` y `GET /api/v1/alerts/trip/{tripId}`
 también las incluyen.
 
 ## 3. SSE: evento `maintenance-alert`
