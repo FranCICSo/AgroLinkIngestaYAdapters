@@ -106,7 +106,7 @@ Sea `L` el conjunto de lecturas de `dispositivo_id` con
 | Campo | Cálculo | Notas |
 |-------|---------|-------|
 | `distanciaM` | `odometro_m` de la última − de la primera lectura **con odómetro no nulo** | Assumption: acumulativo, no se reinicia |
-| `combustibleConsumidoPct` | `combustible_pct` de la primera − de la última lectura **con combustible no nulo** | Puntos porcentuales (spec, Assumptions) |
+| `combustibleConsumidoPct` | Suma de las bajadas de `combustible_pct` entre lecturas consecutivas **con combustible no nulo** (las subidas son recargas y no restan; feature 016) | Puntos porcentuales (spec, Assumptions) |
 | `tasaConsumoPromedio` | `combustibleConsumidoPct / (distanciaM / 1000)` | Puntos %/km. **`null` si `distanciaM = 0`** (FR-005) |
 | `velocidadPromedioKmh` | Media de `velocidad_kmh` no nulos | |
 | `velocidadMaximaKmh` | Máximo de `velocidad_kmh` no nulos | |
@@ -121,9 +121,11 @@ Sea `L` el conjunto de lecturas de `dispositivo_id` con
   `tasaConsumoPromedioNoCalculable: true`.
 - Ninguna lectura con `combustible_pct` → `combustibleConsumidoPct: null` y, en
   consecuencia, `tasaConsumoPromedio: null`.
-- Combustible consumido negativo (hubo recarga en el rango) → se devuelve **tal cual**, sin
-  recortar a cero: el spec declara las recargas fuera de alcance y un valor negativo es la
-  señal honesta de que ocurrió una (mejor que enmascararla con un `0`).
+- Recarga en el rango → **cambiado por la feature 016** (`specs/016-alerta-temperatura-motor/`,
+  research.md D-15). Antes, `primera − última` daba un consumo negativo y se devolvía tal cual. Desde
+  que el simulador recarga el tanque al 100 % debajo del 7 %, el consumo es la suma de las bajadas
+  entre lecturas consecutivas y las subidas (recargas) no restan. Sin recargas, el resultado es el
+  mismo que antes.
 
 ---
 

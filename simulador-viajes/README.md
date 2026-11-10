@@ -165,6 +165,56 @@ WHERE camion_id = '900002' AND estado = 'en_curso';
 
 Como mucho una falla activa por viaje (ver `spec.md`, Edge Cases).
 
+### Sobrecalentamiento de motor (feature 016)
+
+Cada trama lleva la temperatura del refrigerante del motor (campo CAN `2A`). En operación normal
+queda entre 80 y 95 °C. Un sobrecalentamiento la sube 2 °C por trama hasta 115 °C. Al terminar,
+baja 3 °C por trama hasta volver a la banda normal. AgroLinkBackend alerta a partir de 105 °C
+(riesgo de detención) y de 110 °C (detención inminente). Es independiente de las fallas de carga
+de arriba: un viaje puede tener las dos a la vez.
+
+**Al azar**: cada viaje nuevo (incluida la vuelta automática) sortea una falla con
+`MOTOR_FALLA_PROBABILIDAD_PCT` (5 % por defecto; 0 la apaga). Si sale, arranca en un punto al azar
+entre el 10 % y el 70 % de la ruta y dura entre `MOTOR_FALLA_DURACION_MIN_MIN` y
+`MOTOR_FALLA_DURACION_MAX_MIN` minutos (20–40). Termina antes si el viaje termina o si se desactiva a
+mano.
+
+**A mano, sin queries**: el servidor HTTP interno (`PUERTO_HTTP`, sin publicar fuera de la red
+de Docker) expone `/camiones/{dispositivoId}/falla-motor`. La falla manual no tiene duración:
+sigue hasta que se desactiva o termina el viaje.
+
+```sh
+cd deploy
+docker compose exec simulador-viajes curl -s -X POST   localhost:8090/camiones/900002/falla-motor  # activar
+docker compose exec simulador-viajes curl -s           localhost:8090/camiones/900002/falla-motor  # estado y última temperatura
+docker compose exec simulador-viajes curl -s -X DELETE localhost:8090/camiones/900002/falla-motor  # desactivar
+```
+
+Con el simulador local (`make simulador`), el mismo `curl` va directo a
+`localhost:$SIMULADOR_PUERTO_HTTP`. Respuestas y errores en
+`specs/016-alerta-temperatura-motor/contracts/simulador-falla-motor-http.md`.
+
+Variables: `MOTOR_FALLA_PROBABILIDAD_PCT`, `MOTOR_FALLA_DURACION_MIN_MIN`,
+`MOTOR_FALLA_DURACION_MAX_MIN`, `MOTOR_SUBIDA_C_POR_TRAMA` y `MOTOR_PICO_C` (debe superar 105). La
+subida es por trama, así que con un `SIMULADOR_CICLO_MS` menor sube más rápido. La duración se mide
+en minutos de reloj.
+
+### Nivel de combustible y recargas (feature 016)
+
+Cada trama informa el nivel del tanque (CAN `15`, en %). Baja `COMBUSTIBLE_PCT_POR_KM` por km
+recorrido (default 0,05) y no se mueve con el camión detenido. Cuando una trama informa menos de
+`COMBUSTIBLE_RECARGA_DEBAJO_PCT` (default 7 %), la siguiente ya viene con el tanque al 100 %: el
+camión cargó combustible entre las dos. Cada camión arranca con un nivel al azar entre ese umbral y
+100 %, así que la flota no baja pareja. El nivel vive en memoria: si el proceso se reinicia, se
+vuelve a sortear. El consumo acumulado en litros (CAN `14`) no se reinicia con la carga.
+
+Para ver una recarga rápido en una demo, subir `COMBUSTIBLE_PCT_POR_KM` (por ejemplo `0.5`). En
+los logs aparece así:
+
+```json
+{"msg":"Camion simulado cargo combustible: tanque al 100 %","camionId":"900001","nivelAnteriorPct":6.98}
+```
+
 ### Qué pasa al llegar al final de una ruta
 
 El simulador genera automáticamente el viaje de vuelta sobre la misma ruta, en sentido
@@ -189,6 +239,8 @@ Ver `deploy/.env.example`. Las relevantes para este proceso:
 | `OSRM_BASE_URL` | `https://router.project-osrm.org` (demo server público) | Servidor OSRM usado por `crear-ruta`/`POST /rutas` para trazar sobre calles reales (feature 011) |
 | `PUERTO_HTTP` | _(sin definir)_ | Opcional: si se define, levanta el endpoint `POST /rutas` en ese puerto. Sin ella, sólo queda disponible el CLI. **Nunca** publicar este puerto en `deploy/compose.yaml` (research.md D-04 de la feature 011) |
 | `SAMSARA_*` | ver abajo | Emisor de webhooks Samsara simulado (feature 015) |
+| `MOTOR_*` | ver arriba | Temperatura de motor y sobrecalentamiento (feature 016) |
+| `COMBUSTIBLE_PCT_POR_KM` / `COMBUSTIBLE_RECARGA_DEBAJO_PCT` | `0.05` / `7` | Consumo del tanque por km y umbral de recarga a 100 % (feature 016) |
 
 ## Emisor de webhooks Samsara (feature 015)
 

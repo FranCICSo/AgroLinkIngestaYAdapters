@@ -105,6 +105,15 @@ services:
       SAMSARA_MARGEN_KMH: ${SAMSARA_MARGEN_KMH:-20}
       SAMSARA_CICLO_MS: ${SAMSARA_CICLO_MS:-5000}
       SAMSARA_EXCESOS_POR_HORA: ${SAMSARA_EXCESOS_POR_HORA:-0.3125}
+      # Feature 016-alerta-temperatura-motor: sobrecalentamiento de motor simulado. La activacion
+      # manual usa PUERTO_HTTP desde dentro de la red (docker compose exec ... curl), sin ports.
+      MOTOR_FALLA_PROBABILIDAD_PCT: ${MOTOR_FALLA_PROBABILIDAD_PCT:-5}
+      MOTOR_FALLA_DURACION_MIN_MIN: ${MOTOR_FALLA_DURACION_MIN_MIN:-20}
+      MOTOR_FALLA_DURACION_MAX_MIN: ${MOTOR_FALLA_DURACION_MAX_MIN:-40}
+      MOTOR_SUBIDA_C_POR_TRAMA: ${MOTOR_SUBIDA_C_POR_TRAMA:-2}
+      MOTOR_PICO_C: ${MOTOR_PICO_C:-115}
+      COMBUSTIBLE_PCT_POR_KM: ${COMBUSTIBLE_PCT_POR_KM:-0.05}
+      COMBUSTIBLE_RECARGA_DEBAJO_PCT: ${COMBUSTIBLE_RECARGA_DEBAJO_PCT:-7}
     # Sin `ports:`: es un cliente UDP/DB saliente, no expone nada (plan.md, Constraints).
     depends_on:
       timescaledb:

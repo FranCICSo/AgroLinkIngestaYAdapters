@@ -8,6 +8,7 @@
 
 import { log } from '../log.js';
 import { enRangoReservado } from '../domain/rangoDispositivoSimulado.js';
+import { mapFallaMotor } from './viajeRepository.js';
 
 export function validarCamion(camion) {
   if (!enRangoReservado(camion.id)) {
@@ -54,6 +55,8 @@ function mapRow(row) {
       estado: row.estado,
       fallaTipo: row.falla_tipo,
       fallaIndiceDisparo: row.falla_indice_disparo,
+      // Feature 016: falla de motor, independiente de la de carga (FR-004).
+      ...mapFallaMotor(row),
     },
   };
 }
@@ -68,7 +71,9 @@ export async function obtenerViajesEnCurso(pool) {
       c.setpoint_temp_c, c.setpoint_humedad_pct, c.odometro_inicial_km,
       r.id AS ruta_id, r.nombre AS ruta_nombre, r.puntos, r.paradas,
       v.id AS viaje_id, v.sentido, v.indice_actual, v.odometro_actual_km, v.estado,
-      v.falla_tipo, v.falla_indice_disparo
+      v.falla_tipo, v.falla_indice_disparo,
+      v.falla_motor_origen, v.falla_motor_indice_disparo, v.falla_motor_duracion_min,
+      v.falla_motor_activada_en, v.falla_motor_desactivada_en
     FROM simulador.camion c
     JOIN simulador.viaje v ON v.camion_id = c.id AND v.estado = 'en_curso'
     JOIN simulador.ruta r ON r.id = v.ruta_id
@@ -101,7 +106,10 @@ export async function actualizarProgresoViaje(pool, viajeId, { indiceActual, odo
 // FR-014/research.md D-07: al completar la ruta, finaliza el viaje actual y crea
 // automaticamente el de vuelta (misma ruta, sentido invertido), alternando ida/vuelta
 // indefinidamente para que el camion siga emitiendo sin intervencion manual.
-export async function finalizarYCrearVuelta(pool, viaje) {
+//
+// Feature 016 (FR-008): el viaje de vuelta NO copia la falla de motor del anterior; trae su propio
+// sorteo (`fallaMotor`, resultado de sortearFallaMotor o null).
+export async function finalizarYCrearVuelta(pool, viaje, fallaMotor = null) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -110,10 +118,20 @@ export async function finalizarYCrearVuelta(pool, viaje) {
     const nuevoSentido = viaje.sentido === 'ida' ? 'vuelta' : 'ida';
     const { rows } = await client.query(
       `INSERT INTO simulador.viaje
-         (camion_id, ruta_id, sentido, indice_actual, odometro_actual_km, estado)
-       VALUES ($1, $2, $3, 0, $4, 'en_curso')
-       RETURNING id, sentido, indice_actual, odometro_actual_km, estado, falla_tipo, falla_indice_disparo`,
-      [viaje.camionId, viaje.rutaId, nuevoSentido, viaje.odometroActualKm],
+         (camion_id, ruta_id, sentido, indice_actual, odometro_actual_km, estado,
+          falla_motor_origen, falla_motor_indice_disparo, falla_motor_duracion_min)
+       VALUES ($1, $2, $3, 0, $4, 'en_curso', $5, $6, $7)
+       RETURNING id, sentido, indice_actual, odometro_actual_km, estado, falla_tipo, falla_indice_disparo,
+                 falla_motor_origen, falla_motor_indice_disparo, falla_motor_duracion_min`,
+      [
+        viaje.camionId,
+        viaje.rutaId,
+        nuevoSentido,
+        viaje.odometroActualKm,
+        fallaMotor?.origen ?? null,
+        fallaMotor?.indiceDisparo ?? null,
+        fallaMotor?.duracionMin ?? null,
+      ],
     );
 
     await client.query('COMMIT');

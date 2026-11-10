@@ -46,13 +46,7 @@ public class ReporteViajeService {
         List<LecturaTelemetria> conCombustible =
                 lecturas.stream().filter(l -> l.getCombustiblePct() != null).toList();
 
-        Double combustibleConsumidoPct =
-                conCombustible.isEmpty()
-                        ? null
-                        // Puede ser negativo si hubo recarga en el rango: se devuelve tal cual,
-                        // sin recortar a cero (fuera de alcance modelar recargas, spec Assumptions).
-                        : conCombustible.get(0).getCombustiblePct()
-                                - conCombustible.get(conCombustible.size() - 1).getCombustiblePct();
+        Double combustibleConsumidoPct = conCombustible.isEmpty() ? null : sumarBajadas(conCombustible);
 
         boolean tasaNoCalculable = distanciaKm == 0.0 || combustibleConsumidoPct == null;
         Double tasaConsumoPromedio = tasaNoCalculable ? null : combustibleConsumidoPct / distanciaKm;
@@ -89,5 +83,22 @@ public class ReporteViajeService {
                 velocidadMaximaKmh,
                 lecturas.size(),
                 odometroOrigenMixto);
+    }
+
+    /**
+     * Consumo en puntos porcentuales: suma de las bajadas entre lecturas consecutivas. Una subida
+     * es una recarga del tanque y no resta consumo (feature 016, research.md D-15: el simulador
+     * recarga al 100 % debajo del umbral). Antes era "primera menos última", que con una recarga
+     * en el rango daba un consumo negativo. Sin recargas, ambas fórmulas coinciden.
+     */
+    static double sumarBajadas(List<LecturaTelemetria> conCombustible) {
+        double consumido = 0.0;
+        for (int i = 1; i < conCombustible.size(); i++) {
+            double delta = conCombustible.get(i - 1).getCombustiblePct() - conCombustible.get(i).getCombustiblePct();
+            if (delta > 0) {
+                consumido += delta;
+            }
+        }
+        return consumido;
     }
 }

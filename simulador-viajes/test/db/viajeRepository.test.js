@@ -39,7 +39,7 @@ test('obtenerUltimoOdometro devuelve null si el camion nunca tuvo un viaje', asy
 test('insertarViaje crea el viaje en_curso con sentido ida e indice 0', async () => {
   const pool = fakePool(async (sql, params) => {
     assert.match(sql, /INSERT INTO simulador\.viaje/);
-    assert.deepEqual(params, ['900005', 7, 100]);
+    assert.deepEqual(params, ['900005', 7, 100, null, null, null]);
     return {
       rows: [{ id: 1, camion_id: '900005', ruta_id: 7, sentido: 'ida', estado: 'en_curso' }],
     };

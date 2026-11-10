@@ -3,7 +3,13 @@
 // vez) y abre el viaje nuevo. A partir del proximo ciclo (<=60s) el daemon (src/index.js) lo
 // relee de la base y empieza a emitir tramas para este dispositivoId.
 import { obtenerCamion, insertarCamion } from '../db/camionRepository.js';
-import { finalizarViajesEnCurso, obtenerUltimoOdometro, insertarViaje } from '../db/viajeRepository.js';
+import {
+  finalizarViajesEnCurso,
+  obtenerUltimoOdometro,
+  insertarViaje,
+  contarPuntosRuta,
+} from '../db/viajeRepository.js';
+import { sorteoFallaMotorActivo, sortearFallaMotorConfigurado } from '../domain/fallaMotor.js';
 
 export async function iniciarViajeParaCamion(pool, { camion, rutaId }) {
   const existente = await obtenerCamion(pool, camion.id);
@@ -28,7 +34,13 @@ export async function iniciarViajeParaCamion(pool, { camion, rutaId }) {
   const odometroActualKm =
     camion.odometroInicialKm ?? odometroPrevio ?? existente?.odometro_inicial_km ?? 0;
 
-  const viaje = await insertarViaje(pool, { camionId: camion.id, rutaId, odometroActualKm });
+  // Feature 016 (FR-003a): cada viaje nuevo sortea si tendra sobrecalentamiento de motor. Con el
+  // sorteo apagado (probabilidad 0 o sin configurar) ni siquiera se cuentan los puntos.
+  const fallaMotor = sorteoFallaMotorActivo()
+    ? sortearFallaMotorConfigurado(await contarPuntosRuta(pool, rutaId))
+    : null;
+
+  const viaje = await insertarViaje(pool, { camionId: camion.id, rutaId, odometroActualKm, fallaMotor });
 
   return {
     dispositivoId: camion.id,
