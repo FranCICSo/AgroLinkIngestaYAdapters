@@ -105,6 +105,17 @@ public class ViajeProgramadoController {
                 .body(problem);
     }
 
+    @ExceptionHandler(CargaRefrigeradaInvalidaException.class)
+    public ResponseEntity<ProblemDetail> handleCargaRefrigeradaInvalida(CargaRefrigeradaInvalidaException ex) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, ex.getMessage());
+        problem.setTitle("Carga refrigerada invalida");
+        problem.setType(URI.create("about:blank"));
+        problem.setProperty("error", "carga_refrigerada_invalida");
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .contentType(MediaType.APPLICATION_PROBLEM_JSON)
+                .body(problem);
+    }
+
     @ExceptionHandler(ViajeProgramadoNoEncontradoException.class)
     public ResponseEntity<ProblemDetail> handleNoEncontrado(ViajeProgramadoNoEncontradoException ex) {
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, ex.getMessage());

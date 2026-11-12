@@ -1,5 +1,7 @@
 // Endpoint HTTP interno POST /rutas (feature 011-generar-ruta-simulada, FR-005), mas los avisos
-// de viaje del emisor Samsara (feature 015): POST /samsara/viajes[/{tripCode}/detencion].
+// de viaje del emisor Samsara (feature 015): POST /samsara/viajes[/{tripCode}/detencion], y la
+// activacion manual del sobrecalentamiento de motor (feature 016): POST|DELETE|GET
+// /camiones/{camionId}/falla-motor.
 //
 // `node:http` puro, sin framework (Express/Fastify): el repo no usa ninguno en ningun otro
 // lado (ver plan.md § Technical Context) y el endpoint no necesita mas que parsear un body
@@ -8,6 +10,7 @@
 import { createServer } from 'node:http';
 import { log } from '../log.js';
 import { generarRuta } from '../services/routeGenerationService.js';
+import { crearFallaMotorHandler, RUTA_FALLA_MOTOR } from './fallaMotorHandler.js';
 
 const MOTIVO_A_STATUS = {
   validacion: 400,
@@ -71,8 +74,18 @@ async function atenderSamsara(req, res, emisorSamsara) {
   responderJson(res, r.status, r.body);
 }
 
-export function crearRutaHttpServer(pool, osrmBaseUrl, emisorSamsara = null) {
+export function crearRutaHttpServer(pool, osrmBaseUrl, emisorSamsara = null, { fallaMotorHandler } = {}) {
+  const atenderFallaMotor = fallaMotorHandler ?? crearFallaMotorHandler({ pool });
   return createServer(async (req, res) => {
+    if (RUTA_FALLA_MOTOR.test(req.url)) {
+      try {
+        await atenderFallaMotor(req, res, responderJson);
+      } catch (err) {
+        log.error('Fallo atendiendo /camiones/{id}/falla-motor', { url: req.url, error: err.message });
+        responderJson(res, 500, { error: 'interno', detalle: err.message });
+      }
+      return;
+    }
     if (req.method === 'POST' && (req.url === '/samsara/viajes' || RUTA_DETENCION_SAMSARA.test(req.url))) {
       await atenderSamsara(req, res, emisorSamsara);
       return;

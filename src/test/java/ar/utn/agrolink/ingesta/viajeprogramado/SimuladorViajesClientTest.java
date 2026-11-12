@@ -75,6 +75,37 @@ class SimuladorViajesClientTest {
     }
 
     @Test
+    void arrancarViaje_conCargaRefrigerada_mandaTipoCargaYSetpointEnElCentroDelRango() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo("/rutas")).andExpect(method(HttpMethod.POST))
+                .andExpect(jsonPath("$.camion.tipoCarga").value("refrigerada"))
+                .andExpect(jsonPath("$.camion.setpointTempC").value(4.5))
+                .andExpect(jsonPath("$.camion.setpointHumedadPct").doesNotExist())
+                .andRespond(withStatus(HttpStatus.CREATED));
+        ViajeProgramado viaje = viajeDeEjemplo();
+        viaje.setUmbralesTermicos(new BigDecimal("2"), new BigDecimal("7"));
+
+        new SimuladorViajesClient(builder.build()).arrancarViaje(viaje);
+
+        server.verify();
+    }
+
+    @Test
+    void arrancarViaje_sinCargaRefrigerada_mandaCargaSecaSinSetpoint() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo("/rutas")).andExpect(method(HttpMethod.POST))
+                .andExpect(jsonPath("$.camion.tipoCarga").value("seca"))
+                .andExpect(jsonPath("$.camion.setpointTempC").doesNotExist())
+                .andRespond(withStatus(HttpStatus.CREATED));
+
+        new SimuladorViajesClient(builder.build()).arrancarViaje(viajeDeEjemplo());
+
+        server.verify();
+    }
+
+    @Test
     void arrancarViaje_simuladorResponde500_devuelveFalloSinPropagarExcepcion() {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();

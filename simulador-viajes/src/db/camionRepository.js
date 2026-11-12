@@ -49,3 +49,16 @@ export async function insertarCamion(
 export async function reactivarCamion(pool, id) {
   await pool.query(`UPDATE simulador.camion SET activo = true WHERE id = $1`, [id]);
 }
+
+// El tipo de carga es del viaje, no del camion: el mismo camion puede llevar carga seca en un
+// viaje y refrigerada en el siguiente. Por eso al arrancar un viaje que informa la carga se
+// pisa la del camion ya existente (si no, quedaba fija en la del alta y el segmento BLE nunca
+// aparecia en las tramas).
+export async function actualizarCargaCamion(pool, { id, tipoCarga, setpointTempC, setpointHumedadPct }) {
+  await pool.query(
+    `UPDATE simulador.camion
+        SET tipo_carga = $2, setpoint_temp_c = $3, setpoint_humedad_pct = $4
+      WHERE id = $1`,
+    [id, tipoCarga, setpointTempC ?? null, setpointHumedadPct ?? null],
+  );
+}

@@ -10,11 +10,24 @@ import { crearUdpClient } from './net/udpClient.js';
 import { iniciarRutaHttpServer } from './http/rutaHttpServer.js';
 import { crearEmisorSamsara } from './samsara/emisorSamsara.js';
 import { crearWebhookClient } from './samsara/webhookClient.js';
+import { sintetizarTemperaturaMotor, determinarModoMotor } from './domain/sintesisTemperaturaMotor.js';
+import {
+  estadoFallaMotor,
+  configurarSorteoFallaMotor,
+  sortearFallaMotorConfigurado,
+} from './domain/fallaMotor.js';
+import { registrarTemperaturaMotor } from './domain/registroTemperaturaMotor.js';
+import { marcarFallaMotorActivada, marcarFallaMotorDesactivada } from './db/viajeRepository.js';
 
 // Estado que no vive en `simulador.viaje` (combustible/temperatura BLE acumulados,
 // contador de msgNum): se pierde si el proceso se reinicia, a diferencia de posicion y
 // odometro (persistidos en la DB - ver spec, Edge Cases). Alcance aceptado para esta PoC.
 const estadoPorCamion = new Map();
+
+// Feature 016: subida y pico del sobrecalentamiento de motor (loadMotorConfig), fijados en main().
+let motorConfig = null;
+// Feature 016, ampliacion: consumo y umbral de recarga del tanque (loadCombustibleConfig).
+let combustibleConfig = undefined;
 
 function proximoMsgNum(camionId) {
   const estado = estadoPorCamion.get(camionId) ?? {};
@@ -37,6 +50,37 @@ function determinarModoBle(viaje, resultado) {
   return 'normal';
 }
 
+// Feature 016 (data-model.md §1): resuelve el estado de la falla de motor del viaje, persiste
+// sus transiciones automaticas (pendiente -> activa al llegar al indice; activa -> terminada al
+// cumplir la duracion) y sintetiza la temperatura de esta trama. La temperatura anterior solo
+// vale dentro del mismo viaje: un viaje nuevo arranca en la banda normal (FR-008).
+async function sintetizarMotor(pool, { camion, viaje, estado, resultado }) {
+  const ahora = new Date();
+  const estadoFalla = estadoFallaMotor(viaje, { ahora, indice: viaje.indiceActual });
+
+  if (estadoFalla === 'por_activar') {
+    await marcarFallaMotorActivada(pool, viaje.id, ahora);
+    log.info('Sobrecalentamiento de motor activado (al azar)', {
+      camionId: camion.id,
+      viajeId: viaje.id,
+      indice: viaje.indiceActual,
+      duracionMin: viaje.fallaMotorDuracionMin,
+    });
+  } else if (estadoFalla === 'terminada' && viaje.fallaMotorDesactivadaEn == null) {
+    await marcarFallaMotorDesactivada(pool, viaje.id, ahora);
+    log.info('Sobrecalentamiento de motor terminado por duracion', { camionId: camion.id, viajeId: viaje.id });
+  }
+
+  const temperaturaAnterior = estado.viajeIdMotor === viaje.id ? estado.temperaturaMotorC : null;
+  const activa = estadoFalla === 'activa' || estadoFalla === 'por_activar';
+  return sintetizarTemperaturaMotor({
+    temperaturaAnterior,
+    ralenti: resultado.gps.velocidadKmh === 0,
+    modo: determinarModoMotor({ activa, temperaturaAnterior }),
+    config: motorConfig,
+  });
+}
+
 async function procesarCamion(pool, udpClient, entry) {
   const { camion, ruta, viaje } = entry;
   const estado = estadoPorCamion.get(camion.id) ?? {};
@@ -51,12 +95,15 @@ async function procesarCamion(pool, udpClient, entry) {
   // FR-014/research.md D-07: al llegar al final, finaliza el viaje y genera
   // automaticamente el de vuelta - este ciclo no emite trama para este camion.
   if (resultado.completado) {
-    const nuevoViaje = await finalizarYCrearVuelta(pool, viaje);
+    // Feature 016 (FR-008): la vuelta no hereda la falla de motor; tiene su propio sorteo.
+    const fallaMotorVuelta = sortearFallaMotorConfigurado(ruta.puntos.length);
+    const nuevoViaje = await finalizarYCrearVuelta(pool, viaje, fallaMotorVuelta);
     log.info('Viaje completado: generado el viaje de vuelta automatico', {
       camionId: camion.id,
       viajeAnteriorId: viaje.id,
       nuevoViajeId: nuevoViaje.id,
       nuevoSentido: nuevoViaje.sentido,
+      fallaMotor: fallaMotorVuelta ? 'azar' : null,
     });
     return;
   }
@@ -67,7 +114,17 @@ async function procesarCamion(pool, udpClient, entry) {
     distanciaKm,
     combustiblePctAnterior: estado.combustiblePct,
     combustibleConsumidoLAnterior: estado.combustibleConsumidoL,
+    combustible: combustibleConfig,
   });
+  if (can.combustibleRecargado) {
+    log.info('Camion simulado cargo combustible: tanque al 100 %', {
+      camionId: camion.id,
+      viajeId: viaje.id,
+      nivelAnteriorPct: estado.combustiblePct,
+    });
+  }
+
+  const temperaturaMotorC = await sintetizarMotor(pool, { camion, viaje, estado, resultado });
 
   // FR-017: sin carga refrigerada, ble queda null y frameBuilder no agrega el segmento.
   const ble =
@@ -98,7 +155,7 @@ async function procesarCamion(pool, udpClient, entry) {
       odometroEcuKm: null,
       combustibleConsumidoL: can.combustibleConsumidoL,
       combustiblePct: can.combustiblePct,
-      temperaturaRefrigeranteC: null,
+      temperaturaRefrigeranteC: temperaturaMotorC,
       presionAceiteKpa: can.presionAceiteKpa,
     },
     ble,
@@ -110,7 +167,10 @@ async function procesarCamion(pool, udpClient, entry) {
     combustiblePct: can.combustiblePct,
     combustibleConsumidoL: can.combustibleConsumidoL,
     temperaturaBleC: ble ? ble.temperaturaC : estado.temperaturaBleC,
+    temperaturaMotorC,
+    viajeIdMotor: viaje.id,
   });
+  registrarTemperaturaMotor(camion.id, temperaturaMotorC);
 
   const ack = await udpClient.enviarConReintentos(trama, {
     deviceId: camion.id,
@@ -150,6 +210,9 @@ async function ejecutarCiclo(pool, udpClient) {
 
 async function main() {
   const config = loadConfig();
+  motorConfig = config.motor;
+  combustibleConfig = config.combustible;
+  configurarSorteoFallaMotor(config.motor);
   const pool = createPool(config.db);
   const udpClient = crearUdpClient(config.receptor);
 
@@ -158,6 +221,8 @@ async function main() {
     receptorPort: config.receptor.port,
     apuntarAProduccion: config.apuntarAProduccion,
     cicloMs: config.cicloMs,
+    motor: config.motor,
+    combustible: config.combustible,
   });
 
   const ejecutar = () =>

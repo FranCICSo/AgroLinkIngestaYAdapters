@@ -4,6 +4,7 @@
 import { loadConfig } from '../config.js';
 import { createPool, closePool } from '../db/pool.js';
 import { generarRuta } from '../services/routeGenerationService.js';
+import { configurarSorteoFallaMotor } from '../domain/fallaMotor.js';
 
 const MOTIVO_A_MENSAJE = {
   validacion: (detalle) => `Error: ${detalle}`,
@@ -52,6 +53,8 @@ export function construirInput(argv) {
 
 async function main() {
   const config = loadConfig();
+  // Feature 016: el viaje que arranca el CLI tambien sortea la falla de motor (FR-003a).
+  configurarSorteoFallaMotor(config.motor);
   const pool = createPool(config.db);
   const input = construirInput(process.argv.slice(2));
 

@@ -1,6 +1,8 @@
 package ar.utn.agrolink.ingesta.viajeprogramado;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Duration;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -23,6 +25,9 @@ import org.springframework.web.client.RestClientException;
  */
 @Component
 public class SimuladorViajesClient {
+
+    static final String TIPO_CARGA_SECA = "seca";
+    static final String TIPO_CARGA_REFRIGERADA = "refrigerada";
 
     private final RestClient restClient;
 
@@ -65,7 +70,25 @@ public class SimuladorViajesClient {
                 viajeProgramado.getNombreRuta(),
                 new PuntoRequest(viajeProgramado.getOrigenLat(), viajeProgramado.getOrigenLon()),
                 new PuntoRequest(viajeProgramado.getDestinoLat(), viajeProgramado.getDestinoLon()),
-                new CamionRequest(viajeProgramado.getIotDeviceId(), viajeProgramado.getOdometroInicialKm()));
+                camion(viajeProgramado));
+    }
+
+    /**
+     * Siempre informa {@code tipoCarga}: el simulador la pisa en el camion existente, asi un camion
+     * que antes llevo carga seca pasa a emitir el segmento BLE (y viceversa). El setpoint es el
+     * centro del rango de umbrales del viaje, para que la temperatura normal simulada no dispare
+     * alertas; la humedad la completa el simulador con su default.
+     */
+    private CamionRequest camion(ViajeProgramado viajeProgramado) {
+        if (!viajeProgramado.esCargaRefrigerada()) {
+            return new CamionRequest(viajeProgramado.getIotDeviceId(), viajeProgramado.getOdometroInicialKm(),
+                    TIPO_CARGA_SECA, null);
+        }
+        BigDecimal setpoint = viajeProgramado.getUmbralTermicoMinC()
+                .add(viajeProgramado.getUmbralTermicoMaxC())
+                .divide(BigDecimal.valueOf(2), 1, RoundingMode.HALF_UP);
+        return new CamionRequest(viajeProgramado.getIotDeviceId(), viajeProgramado.getOdometroInicialKm(),
+                TIPO_CARGA_REFRIGERADA, setpoint);
     }
 
     private record RutaRequest(String nombre, PuntoRequest origen, PuntoRequest destino, CamionRequest camion) {
@@ -74,8 +97,9 @@ public class SimuladorViajesClient {
     private record PuntoRequest(java.math.BigDecimal lat, java.math.BigDecimal lon) {
     }
 
-    // odometroInicialKm null se omite: el simulador sigue desde el ultimo odometro del camion.
+    // Los null se omiten: odometroInicialKm null = el simulador sigue desde el ultimo odometro
+    // del camion; setpointTempC null = carga seca.
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    private record CamionRequest(String id, java.math.BigDecimal odometroInicialKm) {
+    private record CamionRequest(String id, BigDecimal odometroInicialKm, String tipoCarga, BigDecimal setpointTempC) {
     }
 }

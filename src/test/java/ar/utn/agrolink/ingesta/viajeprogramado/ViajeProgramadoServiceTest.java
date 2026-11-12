@@ -88,6 +88,59 @@ class ViajeProgramadoServiceTest {
                 new BigDecimal("184400").equals(v.getOdometroInicialKm())));
     }
 
+    private ProgramarViajeRequest requestRefrigerado(String tripCode, CargaRefrigeradaDto carga) {
+        return new ProgramarViajeRequest(
+                tripCode,
+                LocalDateTime.now().minusMinutes(1),
+                new PuntoDto(new BigDecimal("-34.6467"), new BigDecimal("-58.4894")),
+                new PuntoDto(new BigDecimal("-34.6037"), new BigDecimal("-58.3816")),
+                null,
+                carga);
+    }
+
+    @Test
+    void programar_conCargaRefrigerada_guardaLosUmbralesParaReenviarlosAlSimulador() {
+        when(repository.findByTripCode("VF1")).thenReturn(Optional.empty());
+        when(repository.findByTripCodeAndIotDeviceId("VF1", "900002")).thenReturn(Optional.empty());
+        when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(simuladorViajesClient.arrancarViaje(any())).thenReturn(SimulacionResultado.ok());
+
+        service().programar("900002", requestRefrigerado("VF1",
+                new CargaRefrigeradaDto(new BigDecimal("2"), new BigDecimal("6"))));
+
+        verify(simuladorViajesClient).arrancarViaje(argThat(v -> v.esCargaRefrigerada()
+                && new BigDecimal("2").equals(v.getUmbralTermicoMinC())
+                && new BigDecimal("6").equals(v.getUmbralTermicoMaxC())));
+    }
+
+    @Test
+    void programar_sinCargaRefrigerada_noGuardaUmbrales() {
+        when(repository.findByTripCode("VF2")).thenReturn(Optional.empty());
+        when(repository.findByTripCodeAndIotDeviceId("VF2", "900002")).thenReturn(Optional.empty());
+        when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(simuladorViajesClient.arrancarViaje(any())).thenReturn(SimulacionResultado.ok());
+
+        service().programar("900002", requestRefrigerado("VF2", null));
+
+        verify(simuladorViajesClient).arrancarViaje(argThat(v -> !v.esCargaRefrigerada()));
+    }
+
+    @Test
+    void programar_cargaRefrigeradaSinUmbralMaximo_lanzaCargaRefrigeradaInvalida() {
+        assertThatThrownBy(() -> service().programar("900002", requestRefrigerado("VF3",
+                new CargaRefrigeradaDto(new BigDecimal("2"), null))))
+                .isInstanceOf(CargaRefrigeradaInvalidaException.class);
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    void programar_cargaRefrigeradaConMinimoMayorAlMaximo_lanzaCargaRefrigeradaInvalida() {
+        assertThatThrownBy(() -> service().programar("900002", requestRefrigerado("VF4",
+                new CargaRefrigeradaDto(new BigDecimal("8"), new BigDecimal("2")))))
+                .isInstanceOf(CargaRefrigeradaInvalidaException.class);
+        verify(repository, never()).save(any());
+    }
+
     @Test
     void programar_conDispositivoFueraDeLaListaCerrada_lanzaExcepcion() {
         assertThatThrownBy(() -> service().programar("12345", requestConHorario("V3", LocalDateTime.now())))

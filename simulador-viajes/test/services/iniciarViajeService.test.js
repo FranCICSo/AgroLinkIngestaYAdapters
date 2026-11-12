@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { iniciarViajeParaCamion } from '../../src/services/iniciarViajeService.js';
+import { iniciarViajeParaCamion, SETPOINT_HUMEDAD_DEFAULT_PCT } from '../../src/services/iniciarViajeService.js';
 
 function fakePool({ camionExistente = null, ultimoOdometro = null } = {}) {
   const llamadas = [];
@@ -13,6 +13,9 @@ function fakePool({ camionExistente = null, ultimoOdometro = null } = {}) {
       }
       if (/INSERT INTO simulador\.camion/.test(sql)) {
         return { rows: [{ id: params[0], nombre: params[1], odometro_inicial_km: params[5] }] };
+      }
+      if (/UPDATE simulador\.camion\s+SET tipo_carga/.test(sql)) {
+        return { rows: [] };
       }
       if (/UPDATE simulador\.viaje SET estado = 'finalizado'/.test(sql)) {
         return { rows: [] };
@@ -85,4 +88,54 @@ test('un odometro explicito en el request manda sobre el ultimo odometro del sim
 
   const insertViaje = pool.llamadas.find((l) => /INSERT INTO simulador\.viaje/.test(l.sql));
   assert.equal(insertViaje.params[2], 184400);
+});
+
+test('alta de camion con carga refrigerada: guarda setpoint y humedad por defecto', async () => {
+  const pool = fakePool();
+
+  await iniciarViajeParaCamion(pool, {
+    camion: { id: '900006', tipoCarga: 'refrigerada', setpointTempC: 4 },
+    rutaId: 7,
+  });
+
+  const insertCamion = pool.llamadas.find((l) => /INSERT INTO simulador\.camion/.test(l.sql));
+  // (id, nombre, tipo_carga, setpoint_temp_c, setpoint_humedad_pct, odometro_inicial_km)
+  assert.deepEqual(insertCamion.params.slice(2, 5), ['refrigerada', 4, SETPOINT_HUMEDAD_DEFAULT_PCT]);
+});
+
+test('camion existente cargado como seca pasa a refrigerada cuando el viaje lo informa', async () => {
+  const pool = fakePool({
+    camionExistente: { id: '900002', nombre: 'Camion 2', tipo_carga: 'seca', odometro_inicial_km: 0 },
+  });
+
+  await iniciarViajeParaCamion(pool, {
+    camion: { id: '900002', tipoCarga: 'refrigerada', setpointTempC: 3.5, setpointHumedadPct: 90 },
+    rutaId: 5,
+  });
+
+  const update = pool.llamadas.find((l) => /UPDATE simulador\.camion\s+SET tipo_carga/.test(l.sql));
+  assert.ok(update, 'debe actualizar la carga del camion existente');
+  assert.deepEqual(update.params, ['900002', 'refrigerada', 3.5, 90]);
+});
+
+test('camion existente refrigerado vuelve a seca y limpia los setpoints', async () => {
+  const pool = fakePool({
+    camionExistente: { id: '900002', nombre: 'Camion 2', tipo_carga: 'refrigerada', odometro_inicial_km: 0 },
+  });
+
+  await iniciarViajeParaCamion(pool, { camion: { id: '900002', tipoCarga: 'seca' }, rutaId: 5 });
+
+  const update = pool.llamadas.find((l) => /UPDATE simulador\.camion\s+SET tipo_carga/.test(l.sql));
+  assert.deepEqual(update.params, ['900002', 'seca', null, null]);
+});
+
+test('sin tipoCarga en el request no toca la carga de un camion existente', async () => {
+  const pool = fakePool({
+    camionExistente: { id: '900002', nombre: 'Camion 2', tipo_carga: 'refrigerada', odometro_inicial_km: 0 },
+  });
+
+  await iniciarViajeParaCamion(pool, { camion: { id: '900002' }, rutaId: 5 });
+
+  const update = pool.llamadas.find((l) => /UPDATE simulador\.camion\s+SET tipo_carga/.test(l.sql));
+  assert.equal(update, undefined);
 });

@@ -14,6 +14,11 @@ COPY simulador-viajes/src ./simulador-viajes/src
 COPY rinho-receptor/src/protocol/frame.js ./rinho-receptor/src/protocol/frame.js
 COPY rinho-receptor/test/tools/buildFrame.js ./rinho-receptor/test/tools/buildFrame.js
 
+# Feature 016-alerta-temperatura-motor (research.md D-05): curl para activar/desactivar el
+# sobrecalentamiento de motor desde dentro del contenedor (docker compose exec ... curl). La
+# imagen base alpine solo trae el wget de busybox.
+RUN apk add --no-cache curl
+
 RUN addgroup -S simulador && adduser -S simulador -G simulador
 USER simulador
 

@@ -70,6 +70,61 @@ export function loadSamsaraConfig(env = process.env) {
   return { ...config, umbralKmh: config.limiteKmh + config.margenKmh };
 }
 
+// Feature 016-alerta-temperatura-motor (research.md D-06): temperatura del motor y falla de
+// sobrecalentamiento. Se valida siempre, porque la temperatura normal se emite en toda trama.
+// 105 C es el umbral de alerta por defecto del backend: un pico que no lo supere no permitiria
+// demostrar la alerta (FR-007).
+export const UMBRAL_ALERTA_MOTOR_DEFAULT_C = 105;
+
+export function loadMotorConfig(env = process.env) {
+  const config = {
+    probabilidadPct: readNumber('MOTOR_FALLA_PROBABILIDAD_PCT', env.MOTOR_FALLA_PROBABILIDAD_PCT, 5),
+    duracionMinMin: readInt('MOTOR_FALLA_DURACION_MIN_MIN', env.MOTOR_FALLA_DURACION_MIN_MIN, 20),
+    duracionMaxMin: readInt('MOTOR_FALLA_DURACION_MAX_MIN', env.MOTOR_FALLA_DURACION_MAX_MIN, 40),
+    subidaCPorTrama: readNumber('MOTOR_SUBIDA_C_POR_TRAMA', env.MOTOR_SUBIDA_C_POR_TRAMA, 2),
+    picoC: readNumber('MOTOR_PICO_C', env.MOTOR_PICO_C, 115),
+  };
+  if (config.probabilidadPct < 0 || config.probabilidadPct > 100) {
+    throw new Error(`MOTOR_FALLA_PROBABILIDAD_PCT debe estar entre 0 y 100, recibido: ${config.probabilidadPct}`);
+  }
+  if (config.duracionMinMin <= 0) {
+    throw new Error(`MOTOR_FALLA_DURACION_MIN_MIN debe ser > 0, recibido: ${config.duracionMinMin}`);
+  }
+  if (config.duracionMaxMin < config.duracionMinMin) {
+    throw new Error(
+      `MOTOR_FALLA_DURACION_MAX_MIN (${config.duracionMaxMin}) debe ser >= MOTOR_FALLA_DURACION_MIN_MIN (${config.duracionMinMin})`,
+    );
+  }
+  if (config.subidaCPorTrama <= 0) {
+    throw new Error(`MOTOR_SUBIDA_C_POR_TRAMA debe ser > 0, recibido: ${config.subidaCPorTrama}`);
+  }
+  if (config.picoC <= UMBRAL_ALERTA_MOTOR_DEFAULT_C) {
+    throw new Error(
+      `MOTOR_PICO_C debe ser > ${UMBRAL_ALERTA_MOTOR_DEFAULT_C} (umbral de alerta), recibido: ${config.picoC}`,
+    );
+  }
+  return config;
+}
+
+// Feature 016, ampliacion (research.md D-15): nivel del tanque de combustible. Baja PCT_POR_KM
+// por km recorrido y vuelve a 100 % en la trama siguiente a la que quedo debajo de
+// RECARGA_DEBAJO_PCT.
+export function loadCombustibleConfig(env = process.env) {
+  const config = {
+    pctPorKm: readNumber('COMBUSTIBLE_PCT_POR_KM', env.COMBUSTIBLE_PCT_POR_KM, 0.05),
+    recargaDebajoPct: readNumber('COMBUSTIBLE_RECARGA_DEBAJO_PCT', env.COMBUSTIBLE_RECARGA_DEBAJO_PCT, 7),
+  };
+  if (config.pctPorKm <= 0 || config.pctPorKm > 100) {
+    throw new Error(`COMBUSTIBLE_PCT_POR_KM debe estar en (0, 100], recibido: ${config.pctPorKm}`);
+  }
+  if (config.recargaDebajoPct <= 0 || config.recargaDebajoPct >= 100) {
+    throw new Error(
+      `COMBUSTIBLE_RECARGA_DEBAJO_PCT debe estar entre 0 y 100 (exclusivos), recibido: ${config.recargaDebajoPct}`,
+    );
+  }
+  return config;
+}
+
 function readBool(value, fallback) {
   if (value === undefined || value === '') return fallback;
   return value === 'true';
@@ -116,5 +171,7 @@ export function loadConfig(env = process.env) {
     // opcional para el loop de simulacion en si, T009/research.md D-04).
     puertoHttp: readInt('PUERTO_HTTP', env.PUERTO_HTTP, undefined),
     samsara: loadSamsaraConfig(env),
+    motor: loadMotorConfig(env),
+    combustible: loadCombustibleConfig(env),
   };
 }

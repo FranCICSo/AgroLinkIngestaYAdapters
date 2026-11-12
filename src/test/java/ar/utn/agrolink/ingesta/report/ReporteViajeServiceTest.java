@@ -141,11 +141,31 @@ class ReporteViajeServiceTest {
     }
 
     @Test
-    void combustibleConsumidoNegativo_seDevuelveTalCualSinRecortarACero() {
-        // Recarga dentro del rango: la ultima lectura tiene MAS combustible que la primera.
+    void recargaEnElRango_noRestaConsumo_seSumanSoloLasBajadas() {
+        // Feature 016: baja de 30 a 6, recarga a 100 y baja a 90. Consumo = 24 + 10 = 34 puntos.
         List<LecturaTelemetria> lecturas =
                 List.of(
-                        lectura(1, Instant.parse("2026-08-15T08:00:00Z"), 50.0, 100.0, OrigenOdometro.GPS, 20.0),
+                        lectura(1, Instant.parse("2026-08-15T08:00:00Z"), 50.0, 100.0, OrigenOdometro.GPS, 30.0),
+                        lectura(2, Instant.parse("2026-08-15T09:00:00Z"), 50.0, 110.0, OrigenOdometro.GPS, 10.0),
+                        lectura(3, Instant.parse("2026-08-15T10:00:00Z"), 50.0, 120.0, OrigenOdometro.GPS, 6.0),
+                        lectura(4, Instant.parse("2026-08-15T11:00:00Z"), 50.0, 130.0, OrigenOdometro.GPS, 100.0),
+                        lectura(5, Instant.parse("2026-08-15T12:00:00Z"), 50.0, 140.0, OrigenOdometro.GPS, 90.0));
+        when(repository.findByDispositivoIdAndMomentoEventoBetweenOrderByMomentoEventoAsc(
+                        anyString(), any(), any()))
+                .thenReturn(lecturas);
+
+        ReporteViajeDto dto = new ReporteViajeService(repository).calcular("2326", DESDE, HASTA);
+
+        assertThat(dto.combustibleConsumidoPct()).isEqualTo(34.0);
+        assertThat(dto.tasaConsumoPromedio()).isEqualTo(34.0 / 40.0);
+        assertThat(dto.tasaConsumoPromedioNoCalculable()).isFalse();
+    }
+
+    @Test
+    void soloRecarga_consumoCero() {
+        List<LecturaTelemetria> lecturas =
+                List.of(
+                        lectura(1, Instant.parse("2026-08-15T08:00:00Z"), 0.0, 100.0, OrigenOdometro.GPS, 20.0),
                         lectura(2, Instant.parse("2026-08-15T09:00:00Z"), 50.0, 110.0, OrigenOdometro.GPS, 90.0));
         when(repository.findByDispositivoIdAndMomentoEventoBetweenOrderByMomentoEventoAsc(
                         anyString(), any(), any()))
@@ -153,8 +173,7 @@ class ReporteViajeServiceTest {
 
         ReporteViajeDto dto = new ReporteViajeService(repository).calcular("2326", DESDE, HASTA);
 
-        assertThat(dto.combustibleConsumidoPct()).isEqualTo(-70.0);
-        assertThat(dto.tasaConsumoPromedioNoCalculable()).isFalse();
+        assertThat(dto.combustibleConsumidoPct()).isZero();
     }
 
     @Test

@@ -58,7 +58,13 @@ CREATE TABLE IF NOT EXISTS simulador.viaje (
     -- Fallas planificadas de carga refrigerada (FR-015/FR-016). Como mucho una por viaje en
     -- esta primera version (spec, Edge Cases).
     falla_tipo              VARCHAR(20)     CHECK (falla_tipo IN ('apertura_puerta', 'falla_compresor')),
-    falla_indice_disparo    INTEGER
+    falla_indice_disparo    INTEGER,
+    -- Sobrecalentamiento de motor (feature 016, migracion 010): independiente de falla_tipo.
+    falla_motor_origen          VARCHAR(6)      CHECK (falla_motor_origen IN ('azar', 'manual')),
+    falla_motor_indice_disparo  INTEGER,
+    falla_motor_duracion_min    INTEGER         CHECK (falla_motor_duracion_min > 0),
+    falla_motor_activada_en     TIMESTAMPTZ,
+    falla_motor_desactivada_en  TIMESTAMPTZ
 );
 
 CREATE INDEX IF NOT EXISTS viaje_camion_estado_idx ON simulador.viaje (camion_id, estado);

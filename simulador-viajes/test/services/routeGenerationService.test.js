@@ -237,6 +237,30 @@ test('rechaza un camion.odometroInicialKm negativo o no numerico, sin llamar a O
   assert.equal(pool.filas.length, 0);
 });
 
+test('rechaza carga refrigerada sin setpointTempC valido o con humedad fuera de rango', async (t) => {
+  const fetchMock = t.mock.method(globalThis, 'fetch', async () => respuestaOsrmOk());
+  const pool = fakePool();
+
+  for (const camion of [
+    { id: '900002', tipoCarga: 'refrigerada' },
+    { id: '900002', tipoCarga: 'refrigerada', setpointTempC: 'frio' },
+    { id: '900002', tipoCarga: 'refrigerada', setpointTempC: 120 },
+    { id: '900002', tipoCarga: 'refrigerada', setpointTempC: 4, setpointHumedadPct: 140 },
+  ]) {
+    const resultado = await generarRuta(pool, 'http://osrm.local', {
+      nombre: 'Ruta demo frio',
+      origen: ORIGEN,
+      destino: DESTINO,
+      camion,
+    });
+
+    assert.equal(resultado.ok, false, JSON.stringify(camion));
+    assert.equal(resultado.motivo, 'validacion');
+  }
+  assert.equal(fetchMock.mock.callCount(), 0);
+  assert.equal(pool.filas.length, 0);
+});
+
 test('con camion.id numerico en el rango reservado, persiste la ruta y arranca un viaje en_curso', async (t) => {
   t.mock.method(globalThis, 'fetch', async () => respuestaOsrmOk());
   const pool = fakePool();

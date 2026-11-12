@@ -54,3 +54,14 @@ test('la seccion GPS mide exactamente 66 caracteres', () => {
   const gpsSection = parsed.body.slice('REQ'.length, 'REQ'.length + 66);
   assert.equal(gpsSection.length, 66);
 });
+
+// Feature 016 (FR-001, FR-009): la temperatura del motor viaja en el campo CAN 2A y el receptor la
+// lee de ahi con su propio parser.
+test('la temperatura del refrigerante viaja en 2A y el receptor la lee', async () => {
+  const { splitBody } = await import('../../../rinho-receptor/src/protocol/bodySections.js');
+  const { parseCanSection } = await import('../../../rinho-receptor/src/protocol/canObd.js');
+  const trama = construirTrama({ ...base, can: { ...base.can, temperaturaRefrigeranteC: 107 }, ble: null });
+  const [parsed] = parseDatagram(trama);
+  assert.equal(parsed.checksumValid, true);
+  assert.equal(parseCanSection(splitBody(parsed.body).canText).get('2A'), '107');
+});
