@@ -11,6 +11,8 @@ import { enRangoReservado } from '../domain/rangoDispositivoSimulado.js';
 import { iniciarViajeParaCamion } from './iniciarViajeService.js';
 
 const TIPOS_CARGA_VALIDOS = ['seca', 'refrigerada'];
+// simulador.camion.setpoint_temp_c es NUMERIC(4,1); +-99.9 cabe, pero ningun frio real pasa de +-50.
+const SETPOINT_TEMP_MAX_ABS_C = 50;
 
 // Mismo default que `avanzar()` en avanceRuta.js (feature 012-velocidad-rpm-verosimil,
 // research.md D-04): el ciclo de simulacion que gobierna cuanta distancia es "recorrible" al
@@ -47,6 +49,23 @@ function validarCamion(camion) {
       valido: false,
       detalle: `camion.tipoCarga debe ser uno de: ${TIPOS_CARGA_VALIDOS.join(', ')}`,
     };
+  }
+  // Carga refrigerada: sin setpoint de temperatura no hay contra que sintetizar el segmento BLE
+  // (sintesisBle.js). La humedad es opcional: iniciarViajeService.js le pone un default.
+  if (camion.tipoCarga === 'refrigerada') {
+    if (!(Number.isFinite(camion.setpointTempC) && Math.abs(camion.setpointTempC) <= SETPOINT_TEMP_MAX_ABS_C)) {
+      return {
+        valido: false,
+        detalle: `camion.setpointTempC es obligatorio con carga refrigerada y debe ser un numero entre -${SETPOINT_TEMP_MAX_ABS_C} y ${SETPOINT_TEMP_MAX_ABS_C}`,
+      };
+    }
+    if (
+      camion.setpointHumedadPct !== undefined &&
+      camion.setpointHumedadPct !== null &&
+      !(Number.isFinite(camion.setpointHumedadPct) && camion.setpointHumedadPct >= 0 && camion.setpointHumedadPct <= 100)
+    ) {
+      return { valido: false, detalle: 'camion.setpointHumedadPct debe ser un numero entre 0 y 100' };
+    }
   }
   if (
     camion.odometroInicialKm !== undefined &&

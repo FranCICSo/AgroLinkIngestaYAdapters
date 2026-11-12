@@ -37,6 +37,7 @@ public class ViajeProgramadoService {
             // en un NullPointerException mas abajo.
             throw new CoordenadasNoDisponiblesException(request.tripCode());
         }
+        validarCargaRefrigerada(request);
 
         ViajeProgramado viajeDeOtroDispositivo = repository.findByTripCode(request.tripCode())
                 .filter(v -> !v.getIotDeviceId().equals(iotDeviceId))
@@ -67,6 +68,10 @@ public class ViajeProgramadoService {
             viaje.setEstimatedStartDateTime(request.estimatedStartDateTime());
         }
         viaje.setOdometroInicialKm(request.odometroInicialKm());
+        CargaRefrigeradaDto carga = request.cargaRefrigerada();
+        viaje.setUmbralesTermicos(
+                carga == null ? null : carga.umbralTermicoMinC(),
+                carga == null ? null : carga.umbralTermicoMaxC());
         viaje = repository.save(viaje);
 
         // FR-002a: si el horario ya paso (o es inmediato), dispara de una en vez de esperar
@@ -130,6 +135,19 @@ public class ViajeProgramadoService {
 
     private String nombreRuta(String tripCode) {
         return "Viaje " + tripCode;
+    }
+
+    private void validarCargaRefrigerada(ProgramarViajeRequest request) {
+        CargaRefrigeradaDto carga = request.cargaRefrigerada();
+        if (carga == null) {
+            return;
+        }
+        if (carga.umbralTermicoMinC() == null || carga.umbralTermicoMaxC() == null) {
+            throw new CargaRefrigeradaInvalidaException(request.tripCode(), "faltan umbralTermicoMinC y/o umbralTermicoMaxC");
+        }
+        if (carga.umbralTermicoMinC().compareTo(carga.umbralTermicoMaxC()) > 0) {
+            throw new CargaRefrigeradaInvalidaException(request.tripCode(), "umbralTermicoMinC es mayor que umbralTermicoMaxC");
+        }
     }
 
     private boolean tieneCoordenadas(ProgramarViajeRequest request) {

@@ -2,7 +2,7 @@
 // no existia, cierra cualquier viaje 'en_curso' que tuviera (invariante: a lo sumo uno a la
 // vez) y abre el viaje nuevo. A partir del proximo ciclo (<=60s) el daemon (src/index.js) lo
 // relee de la base y empieza a emitir tramas para este dispositivoId.
-import { obtenerCamion, insertarCamion } from '../db/camionRepository.js';
+import { obtenerCamion, insertarCamion, actualizarCargaCamion } from '../db/camionRepository.js';
 import {
   finalizarViajesEnCurso,
   obtenerUltimoOdometro,
@@ -11,18 +11,35 @@ import {
 } from '../db/viajeRepository.js';
 import { sorteoFallaMotorActivo, sortearFallaMotorConfigurado } from '../domain/fallaMotor.js';
 
+// Humedad relativa por defecto para carga refrigerada cuando el llamador no la informa
+// (AgroLinkBackend solo tiene umbrales de temperatura). Rango tipico de carne refrigerada.
+export const SETPOINT_HUMEDAD_DEFAULT_PCT = 88;
+
+function resolverCarga(camion) {
+  if (camion.tipoCarga === 'refrigerada') {
+    return {
+      tipoCarga: 'refrigerada',
+      setpointTempC: camion.setpointTempC,
+      setpointHumedadPct: camion.setpointHumedadPct ?? SETPOINT_HUMEDAD_DEFAULT_PCT,
+    };
+  }
+  return { tipoCarga: camion.tipoCarga ?? 'seca', setpointTempC: null, setpointHumedadPct: null };
+}
+
 export async function iniciarViajeParaCamion(pool, { camion, rutaId }) {
   const existente = await obtenerCamion(pool, camion.id);
+  const carga = resolverCarga(camion);
 
   if (!existente) {
     await insertarCamion(pool, {
       id: camion.id,
       nombre: camion.nombre ?? camion.id,
-      tipoCarga: camion.tipoCarga ?? 'seca',
       odometroInicialKm: camion.odometroInicialKm ?? 0,
-      setpointTempC: camion.setpointTempC,
-      setpointHumedadPct: camion.setpointHumedadPct,
+      ...carga,
     });
+  } else if (camion.tipoCarga !== undefined) {
+    // Sin tipoCarga en el request (llamadores previos) se conserva la carga del camion.
+    await actualizarCargaCamion(pool, { id: camion.id, ...carga });
   }
 
   await finalizarViajesEnCurso(pool, camion.id);

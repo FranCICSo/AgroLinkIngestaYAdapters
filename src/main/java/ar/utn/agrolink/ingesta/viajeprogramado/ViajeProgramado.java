@@ -56,6 +56,13 @@ public class ViajeProgramado {
     @Column(name = "odometro_inicial_km")
     private BigDecimal odometroInicialKm;
 
+    // Ambos null = carga no refrigerada; ambos presentes = refrigerada (ViajeProgramadoService valida).
+    @Column(name = "umbral_termico_min_c")
+    private BigDecimal umbralTermicoMinC;
+
+    @Column(name = "umbral_termico_max_c")
+    private BigDecimal umbralTermicoMaxC;
+
     @Column(name = "estado", nullable = false)
     private String estado;
 
@@ -136,6 +143,25 @@ public class ViajeProgramado {
 
     public void setOdometroInicialKm(BigDecimal odometroInicialKm) {
         this.odometroInicialKm = odometroInicialKm;
+        tocarActualizadoEn();
+    }
+
+    public BigDecimal getUmbralTermicoMinC() {
+        return umbralTermicoMinC;
+    }
+
+    public BigDecimal getUmbralTermicoMaxC() {
+        return umbralTermicoMaxC;
+    }
+
+    public boolean esCargaRefrigerada() {
+        return umbralTermicoMinC != null && umbralTermicoMaxC != null;
+    }
+
+    /** {@code null} en ambos = carga no refrigerada. */
+    public void setUmbralesTermicos(BigDecimal minC, BigDecimal maxC) {
+        this.umbralTermicoMinC = minC;
+        this.umbralTermicoMaxC = maxC;
         tocarActualizadoEn();
     }
 
