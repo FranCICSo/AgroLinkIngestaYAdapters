@@ -33,7 +33,7 @@
 - [X] T010 [US1] Levantar `rinho-receptor` y `agrolink-ingesta`. Los dos quedan healthy.
 - [X] T011 [US1] Verificar la cadena UDP desde internet hasta la base con una trama de prueba. ⚠️ Esa fila se borró después; ver Complexity Tracking (Principio IV).
 - [X] T012 [US1] **(usuario)** Reprogramar el Rinho (`SIP0`) hacia `20.151.0.131/5000`. Llegaron las tramas acumuladas del período de caída (Principio VII).
-- [ ] T013 [P] [US1] Documentar en `deploy/README.md` la reprogramación del Rinho (FR-009): comandos `>SIP0<IP>/5000<` y `>SIP4<IP>/5000<`, y que SIP4 apuntaba a una IP privada (`192.168.1.44`) que no se alcanza desde GPRS. Sin la contraseña del WiFi.
+- [X] T013 [P] [US1] Documentar en `deploy/README.md` la reprogramación del Rinho (FR-009): comandos `>SIP0<IP>/5000<` y `>SIP4<IP>/5000<`, y que SIP4 apuntaba a una IP privada (`192.168.1.44`) que no se alcanza desde GPRS. Sin la contraseña del WiFi.
 - [ ] T014 [US1] **(usuario)** Confirmar que el canal SIP4 (celular) también apunte a `20.151.0.131/5000`, o que esté desactivado.
 
 ## Phase 4: US2 - El backend obtiene el estado, y solo él (P2)
@@ -60,12 +60,12 @@
 
 ## Phase 7: US5 - Rehacer el servidor desde cero (P5)
 
-- [ ] T028 [US5] Reescribir el §2 de `deploy/README.md` (Puesta en marcha) para Azure (FR-012): `list-available-sizes.sh` → `provision.sh` → copiar `deploy/` y `.env` → `vm-setup.sh` → migraciones → simulador. Hoy todavía describe Shape A1 y Security List de OCI.
-- [ ] T029 [US5] Documentar el procedimiento de salida en `deploy/README.md` (FR-014): recrear el servidor en otro proveedor o suscripción, reapuntar el Rinho y el backend, volver a programar los viajes pendientes, y apagar o borrar `agrolink-rg`. Antes del **15/02/2027** (SC-007).
+- [X] T028 [US5] Reescribir el §2 de `deploy/README.md` (Puesta en marcha) para Azure (FR-012): `list-available-sizes.sh` → `provision.sh` → copiar `deploy/` y `.env` → `vm-setup.sh` → migraciones → simulador. Hoy todavía describe Shape A1 y Security List de OCI.
+- [X] T029 [US5] Documentar el procedimiento de salida en `deploy/README.md` (FR-014): recrear el servidor en otro proveedor o suscripción, reapuntar el Rinho y el backend, volver a programar los viajes pendientes, y apagar o borrar `agrolink-rg`. Antes del **15/02/2027** (SC-007).
 
 ## Phase 8: Polish y verificación
 
-- [ ] T030 Registrar la verificación de punta a punta en `specs/017-migracion-vm-azure/verification.md` (FR-015): salud de los servicios, trama real del Rinho en la base, estado consultado desde el backend, 8082 rechazado desde otra IP, 5432 no expuesto. No mandar tramas sintéticas a producción (ver Complexity Tracking).
+- [X] T030 Registrar la verificación de punta a punta (registrada el 2026-11-16 con los chequeos 1 a 6 en verde; los chequeos 7 a 9 quedan para T019, T024 y T031) en `specs/017-migracion-vm-azure/verification.md` (FR-015): salud de los servicios, trama real del Rinho en la base, estado consultado desde el backend, 8082 rechazado desde otra IP, 5432 no expuesto. No mandar tramas sintéticas a producción (ver Complexity Tracking).
 - [ ] T031 Después del **2026-11-18 23:50 UTC** (72 h), verificar SC-005: `docker inspect -f '{{.Name}} {{.RestartCount}} {{.State.OOMKilled}}' $(docker ps -aq)` y `sudo journalctl -k | grep -i oom` sin eventos.
 - [ ] T032 Cuando estén cerradas T019 a T031, cambiar el estado de `spec.md` de `Draft` a `Implemented`.
 

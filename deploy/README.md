@@ -24,164 +24,208 @@ GHCR (`agrolink-ingesta`, `rinho-receptor`, `simulador-viajes`) se publican para
 arquitecturas desde el CI (§7). Si se cambia algún tag base, verificar que siga publicando
 `linux/amd64` antes de subirlo.
 
-## 2. Puesta en marcha (VM Oracle Ampere A1)
+## 2. Puesta en marcha (VM Azure)
 
-### 2.1 Crear la VM
+Producción actual: VM `agrolink-ingesta` en el grupo `agrolink-rg`, Azure for Students,
+**Canada Central**, `Standard_B2pls_v2` (2 vCPU Ampere ARM64, 4 GB), Ubuntu 24.04 LTS,
+IPv4 estática **`20.151.0.131`**, usuario `ubuntu`. Decisiones y motivos en
+`specs/017-migracion-vm-azure/plan.md`. Hasta noviembre de 2026 corría en una VM Oracle Cloud
+Ampere A1 (`137.131.255.202`), perdida al suspenderse la tenancy.
 
-Shape `VM.Standard.A1.Flex`, Always Free (hasta 4 OCPU / 24 GB, este stack usa
-2 OCPU / 12 GB), imagen **Ubuntu ARM64** (`aarch64`). No hace falta instalar Docker a mano:
-el script `deploy/vm-setup.sh` (§2.4) lo hace.
+Todos los comandos de Azure se corren en **Azure Cloud Shell** (portal → ícono `>_` → Bash),
+donde `az` ya está autenticado. Los scripts se suben con **Manage files → Upload**.
 
-### 2.2 Abrir el puerto UDP — dos capas, hacen falta las dos
+### 2.1 Elegir región y tamaño
 
-**a) Security List (o NSG) de la VCN**, en la consola de Oracle Cloud:
-
-1. **Networking → Virtual Cloud Networks →** la VCN de la VM **→ Security Lists** (o
-   **Network Security Groups** si la VM usa NSG en vez de Security List clásica).
-2. **Add Ingress Rules**.
-3. Completar:
-   - **Source CIDR**: `0.0.0.0/0` (o el rango del operador celular del dispositivo, si se
-     conoce — ver la nota de escalado en §5).
-   - **IP Protocol**: **UDP** (no TCP).
-   - **Destination Port Range**: `5000` (o el valor de `UDP_PORT` en `.env`).
-4. Guardar.
-
-**b) Firewall del sistema operativo dentro de la VM.** Las imágenes Ubuntu de Oracle Cloud
-traen reglas `iptables` que bloquean todo lo que no sea SSH, **además** de la Security
-List — abrir solo la (a) no alcanza. `vm-setup.sh` abre esta capa automáticamente
-(`iptables -I INPUT -p udp --dport 5000 -j ACCEPT`, persistido con
-`netfilter-persistent` si está disponible).
-
-> ⚠️ **Trampa**: si se abre el puerto en TCP en cualquiera de las dos capas, o se abre UDP
-> en una sola de las dos, el stack queda arriba y aparentemente sano (los tres contenedores
-> `healthy`), pero el dispositivo real nunca logra reportar y no hay ningún error visible en
-> los logs. Si al final de la guía no llega ninguna trama, revisar esto primero — con:
-> ```bash
-> sudo iptables -L INPUT -n | grep 5000
-> ```
-
-### 2.2b Abrir el puerto de la consulta de estado de vehículo (feature 002)
-
-`agrolink-ingesta` publica un segundo puerto, dedicado exclusivamente a
-`GET /api/v1/vehiculos/{dispositivoId}/estado` (`VEHICULO_ESTADO_HTTP_PORT`, research.md
-D-01 de la feature 002). El puerto de reportes (`REPORTES_HTTP_PORT`) sigue **sin**
-publicarse — esta regla es solo para el puerto nuevo.
-
-Mismas dos capas que en §2.2, pero en **TCP**:
-
-**a) Security List (o NSG) de la VCN**: **Add Ingress Rules** con **Source CIDR**
-`0.0.0.0/0` (o el rango de red de AgroLinkBackend, si se conoce), **IP Protocol** **TCP**,
-**Destination Port Range** `8082` (o el valor de `VEHICULO_ESTADO_HTTP_PORT` en `.env`).
-
-**b) Firewall del sistema operativo dentro de la VM**:
+La suscripción de estudiante solo permite 5 regiones (policy "Allowed resource deployment
+regions") y no todos los tamaños de VM. **No elegir a ciegas**: el portal puede ofrecer un
+tamaño que después se rechaza con `NotAvailableForSubscription`.
 
 ```bash
-sudo iptables -I INPUT -p tcp --dport 8082 -j ACCEPT
-sudo netfilter-persistent save   # si está disponible
+bash list-available-sizes.sh     # deploy/azure/: tamaños de 4-8 GB habilitados, con precio/mes
 ```
 
-Verificar con `docker compose ps`: `agrolink-ingesta` debe listar **ese** puerto en
-`PORTS`, y ningún puerto correspondiente a `REPORTES_HTTP_PORT`.
+Solo lee: no crea nada ni consume crédito. Tarda de 1 a 3 minutos por región. Las regiones y el
+rango se cambian con `REGIONS="..." MIN_GB=4 MAX_GB=8`. Elegir la más barata que tenga
+**4 GB o más**. El stack corre en ARM64 y en x86_64: las imágenes son multi-arch (§1).
+
+### 2.2 Crear la VM y las reglas de red
+
+Subir `deploy/azure/provision.sh` y la clave pública SSH como `ssh-key.pub` en la misma carpeta.
+Hoy es `ssh-key-2026-08-11.key.pub`, cuya privada está en los secrets del CI.
+
+```bash
+bash provision.sh                                         # defaults: canadacentral, B2pls_v2
+VM_SIZE=Standard_B2als_v2 LOCATION=chilecentral bash provision.sh   # otra región o tamaño
+BACKEND_IP=64.181.162.233 bash provision.sh               # además abre 8082 solo al backend
+```
+
+El script:
+
+1. Verifica que la región esté permitida y que el tamaño esté habilitado para la suscripción.
+   Si alguna de las dos cosas falla, aborta sin crear nada.
+2. Crea el grupo de recursos, el NSG, la IPv4 estática Standard y la VM. La imagen Ubuntu 24.04
+   se elige sola según la arquitectura del tamaño.
+3. Imprime la IP pública.
+
+Es **re-ejecutable**: si la VM ya existe, no la recrea (la IP se conserva). Se vuelve a correr
+para agregar la regla del backend. Si `az vm create` falla por *security type* o *Trusted
+Launch*, reintentar con `SECURITY_TYPE=Standard`.
+
+Reglas de entrada del NSG (todo lo demás entrante queda denegado):
+
+| Regla | Protocolo/puerto | Origen | Por qué |
+|-------|------------------|--------|---------|
+| `allow-ssh` | TCP 22 | cualquiera | GitHub Actions despliega desde IPs no fijas. Solo clave, sin root ni contraseña (§2.4). |
+| `allow-rinho-udp` | **UDP** 5000 | cualquiera | Los equipos reportan desde IPs celulares variables. Protección: checksum y dispositivo conocido. |
+| `allow-backend-ingesta` | TCP 8082 | solo `BACKEND_IP` | Consulta de estado de vehículo (feature 002). Sigue en HTTP sin cifrar (ver Complexity Tracking del plan 017). |
+
+PostgreSQL (5432) y los puertos internos (8081 del receptor y 8083 de reportes) **nunca** se
+exponen.
+
+> ⚠️ **Trampa**: la regla del receptor tiene que ser **UDP**. Con TCP, el stack queda
+> `healthy` pero el dispositivo nunca logra reportar, y no aparece ningún error en los logs.
+>
+> En Azure, a diferencia de OCI, **no hay una segunda capa de firewall en el SO**: la imagen
+> Ubuntu trae `iptables` con política ACCEPT, y el filtrado lo hace solo el NSG.
+>
+> Si cambia la IP de salida del backend, el estado de vehículo deja de responder (timeout).
+> Se corrige volviendo a correr `provision.sh` con la `BACKEND_IP` nueva.
 
 ### 2.3 Contraseñas — de dónde salen
 
-**No salen de ningún lado: las generás vos**, antes del primer `docker compose up`. No hay
-valores por defecto ni se recuperan de un repositorio de secretos externo — son tres
-contraseñas locales al stack, consumidas una sola vez durante la inicialización de
-TimescaleDB:
+Son locales al stack y se aplican una sola vez, cuando `timescaledb` arranca sobre un volumen
+vacío (los scripts de `deploy/db/` corren vía `docker-entrypoint-initdb.d`):
 
-- `POSTGRES_SUPERUSER_PASSWORD` — superusuario `postgres` del motor.
-- `RINHO_RECEPTOR_DB_PASSWORD` — rol `rinho_receptor` (lo usa el receptor UDP para
-  conectarse; ver `deploy/db/02-roles.sql`).
-- `AGROLINK_INGESTA_DB_PASSWORD` — rol `agrolink_ingesta` (lo usa el servicio de reportes).
+- `POSTGRES_SUPERUSER_PASSWORD`: superusuario `postgres`.
+- `RINHO_RECEPTOR_DB_PASSWORD`: rol `rinho_receptor` (receptor UDP; ver `deploy/db/02-roles.sql`).
+- `AGROLINK_INGESTA_DB_PASSWORD`: rol `agrolink_ingesta`.
+- `SIMULADOR_VIAJES_DB_PASSWORD`: rol del simulador.
 
-Generarlas y completarlas en `deploy/.env` (nunca en `.env.example`, que sí se commitea):
+En la VM de Azure se reutilizaron las de la VM de OCI (decisión D-05 del plan 017), tomadas de
+la copia local de `deploy/.env`. Para una instalación nueva, generarlas:
 
 ```bash
 cd deploy
 cp .env.example .env
-for var in POSTGRES_SUPERUSER_PASSWORD RINHO_RECEPTOR_DB_PASSWORD AGROLINK_INGESTA_DB_PASSWORD; do
+for var in POSTGRES_SUPERUSER_PASSWORD RINHO_RECEPTOR_DB_PASSWORD AGROLINK_INGESTA_DB_PASSWORD SIMULADOR_VIAJES_DB_PASSWORD; do
   echo "$var=$(openssl rand -base64 24)"
 done
-# pegar los tres valores generados en .env, reemplazando cada "VAR="
-$EDITOR .env
+$EDITOR .env   # pegar los valores generados
 ```
 
-> ⚠️ **Importante**: estas contraseñas solo se aplican la **primera vez** que
-> `timescaledb` arranca sobre un volumen vacío (los scripts de `deploy/db/` corren una sola
-> vez, vía `docker-entrypoint-initdb.d`). Si se pierde `.env` después de ese primer arranque,
-> no se puede "recuperar" la contraseña real desde ningún lado — hay que resetearla a mano
-> con `ALTER ROLE ... PASSWORD '...'` conectado como `postgres`, y actualizar `.env` para que
-> coincida. Guardar `.env` en un gestor de contraseñas, no solo en la VM.
+> ⚠️ Si se pierde `.env` después del primer arranque, la contraseña no se puede recuperar:
+> hay que resetearla con `ALTER ROLE ... PASSWORD '...'` como `postgres`. Guardar `.env` en un
+> gestor de contraseñas, no solo en la VM.
 
-`deploy/.env` **nunca se commitea** (Principio VI) — está en `.gitignore`. Solo se versiona
-`deploy/.env.example`, sin valores.
+`deploy/.env` **nunca se commitea** (Principio VI): está en `.gitignore`.
 
 ### 2.4 Preparar la VM y levantar el stack
 
+Desde la máquina de desarrollo, con la clave privada SSH. **Copiar `deploy/` desde
+`origin/master` actualizado**, que es lo mismo que despliega el CI: si la copia local está
+atrasada, se aplican menos migraciones de las que espera la imagen `latest` de GHCR (incidente 1
+del plan 017).
+
 ```bash
-git clone <url-del-repo>
-cd AgroLinkIngestaAdaptacion/deploy
-cp .env.example .env && $EDITOR .env   # completar contraseñas, ver §2.3
-./vm-setup.sh
+IP=20.151.0.131; KEY=ssh-key-2026-08-11.key
+git fetch origin && git switch --detach origin/master    # o un worktree de origin/master
+ssh -i $KEY ubuntu@$IP 'mkdir -p ~/AgroLinkIngestaYAdapters'
+rsync -az --exclude 'azure/' -e "ssh -i $KEY" deploy ubuntu@$IP:AgroLinkIngestaYAdapters/
+ssh -i $KEY ubuntu@$IP 'cd ~/AgroLinkIngestaYAdapters/deploy && ./vm-setup.sh'
 ```
 
-`vm-setup.sh` (idempotente — se puede correr de nuevo sin romper nada):
+`vm-setup.sh` es idempotente:
 
-1. Instala Docker Engine + Compose plugin si no están.
-2. Agrega el usuario actual al grupo `docker`.
-3. Abre `UDP_PORT` en el firewall local de la VM (§2.2b).
-4. Si `deploy/.env` ya existe, corre `docker compose up -d` y muestra `docker compose ps`.
-   Si no existe, avisa y no levanta nada.
+1. Instala Docker Engine y el plugin de Compose.
+2. Agrega `ubuntu` al grupo `docker`.
+3. Deja el filtrado al NSG (abre el UDP en el SO solo si detecta ufw o iptables restrictivos).
+4. Desactiva el login SSH de root y por contraseña (`/etc/ssh/sshd_config.d/60-agrolink.conf`).
+5. Crea un swap de 2 GB.
+6. Si existe `deploy/.env`, hace `docker compose up -d`.
 
-Si se agregó el usuario al grupo `docker` recién ahora, hace falta cerrar la sesión SSH y
-volver a entrar antes de que el script pueda correr `docker compose` sin `sudo` (el propio
-script lo indica).
+**Abrir una sesión SSH nueva** después del primer `vm-setup.sh`. La sesión anterior no tiene el
+grupo `docker`, y `docker ps` da `permission denied ... docker.sock` (o usar `newgrp docker`).
+
+Levantar en orden (sesión nueva, en `~/AgroLinkIngestaYAdapters`):
+
+```bash
+set -a; . deploy/.env; set +a
+docker compose -f deploy/compose.yaml pull timescaledb rinho-receptor agrolink-ingesta
+docker compose -f deploy/compose.yaml up -d --wait timescaledb
+deploy/scripts/apply-migrations.sh deploy/compose.yaml deploy/migrations POSTGRES_DB
+docker compose -f deploy/compose.yaml up -d --wait rinho-receptor agrolink-ingesta
+# Opcional: simulador (mismos pasos que el job deploy-simulador del CI, §7.2)
+docker compose -f deploy/compose.yaml exec -T timescaledb psql -U postgres -d "$POSTGRES_DB" \
+  -v ON_ERROR_STOP=1 -q -f - < deploy/seed/simulador-camion-1.sql
+docker compose -f deploy/compose.yaml --profile simulador up -d --no-deps simulador-viajes
+```
+
+Las imágenes de GHCR son públicas: no hace falta `docker login` para el `pull`.
+
+Memoria (VM de 4 GB): los límites de `compose.yaml` suman unos 2,4 GB (TimescaleDB 1536m con
+`TS_TUNE_MEMORY=1GB`, ingesta 512m, receptor 256m, simulador 128m). Con todo corriendo se miden
+unos 870 MB usados.
 
 ### 2.5 Creación de la base de datos
 
-**No es un paso manual aparte.** `deploy/db/01-schema.sql` y `deploy/db/02-roles.sql` están
-montados como `docker-entrypoint-initdb.d` (ver `compose.yaml`, servicio `timescaledb`): la
-imagen oficial de Postgres los ejecuta **automáticamente, una sola vez**, la primera vez que
-`timescaledb` arranca sobre un volumen de datos vacío — crean el esquema `telemetria`, la
-hypertable y los roles `rinho_receptor`/`agrolink_ingesta` usando las contraseñas de `.env`.
+**No es un paso manual aparte.** `deploy/db/01-schema.sql`, `02-roles.sql` y
+`03-schema-simulador.sql` se montan como `docker-entrypoint-initdb.d` y corren **una sola vez**,
+la primera vez que `timescaledb` arranca sobre un volumen vacío. Después,
+`apply-migrations.sh` aplica en orden las migraciones de `deploy/migrations/` que falten, y las
+registra en `public.schema_migrations`. Es el mismo script que corre el CI en cada deploy.
 
-Si hace falta recrear la base desde cero (por ejemplo, para repetir la inicialización con
-otras contraseñas), hay que **borrar el volumen**, no solo reiniciar el contenedor:
+Para recrear la base desde cero hay que **borrar el volumen**:
 
 ```bash
-docker compose down
+docker compose -f deploy/compose.yaml down
 docker volume rm deploy_timescaledb-data   # ⚠️ destruye todos los datos persistidos
-docker compose up -d
 ```
 
-> **Migración manual (feature 005, `odometro_m` → `odometro_km`)**: si el volumen ya
-> estaba inicializado antes de esta feature, `01-schema.sql` no se vuelve a correr (solo
-> aplica a volúmenes vacíos), así que hay que aplicar el cambio a mano, conectado como
-> `postgres` o como `agrolink_ingesta`:
->
-> ```sql
-> ALTER TABLE telemetria.lectura_telemetria
->     RENAME COLUMN odometro_m TO odometro_km;
-> ALTER TABLE telemetria.lectura_telemetria
->     ALTER COLUMN odometro_km TYPE DOUBLE PRECISION USING odometro_km / 1000.0;
-> ```
->
-> Ver `specs/005-odometer-storage-km/research.md` (D-04) para el detalle de por qué no
-> hay un mecanismo de migración automático (el proyecto no usa Flyway/Liquibase).
+No hay backups (decisión D-06 del plan 017): la plataforma solo usa el último estado de cada
+vehículo.
 
 ### 2.6 Verificar
 
 ```bash
-docker compose ps   # los tres servicios: running y healthy
+docker compose -f deploy/compose.yaml ps   # todos running y healthy
+docker logs -f --since 5m rinho-receptor   # tramas llegando en vivo
+docker exec deploy-timescaledb-1 sh -c 'psql -U postgres -d "$POSTGRES_DB" -c "select momento_evento, momento_recepcion, latitud, longitud, velocidad_kmh, ignicion, odometro_km, estado_interpretacion from telemetria.lectura_telemetria where dispositivo_id = 860693084873877::text order by momento_evento desc limit 10;"'
+curl -s http://127.0.0.1:8082/api/v1/vehiculos/860693084873877/estado
 ```
 
-`agrolink-ingesta` puede tardar hasta ~2 minutos en pasar a `healthy` (arranque en frío de
-la JVM con 2 OCPU compartidas). Ver también `quickstart.md` §1.5 para verificar el esquema.
+`agrolink-ingesta` puede tardar hasta unos 2 minutos en pasar a `healthy` (arranque en frío de
+la JVM). Si el scheduler de viajes programados loguea `column ... does not exist`, faltan
+migraciones: volver a copiar `deploy/` desde `origin/master` y correr `apply-migrations.sh`.
+
+> ⚠️ **No mandar tramas sintéticas a producción** para probar. Quedan como lecturas, y el
+> Principio IV prohíbe borrarlas. Verificar con el dispositivo real, o con el stack local
+> (§2.7).
+
+### 2.6b Reprogramar el dispositivo Rinho a una IP nueva
+
+Cada vez que cambia la IP del servidor, el equipo tiene que reprogramarse: el destino está
+grabado en el dispositivo, no se resuelve por DNS. Enviar por el medio de configuración que
+se use con el equipo:
+
+```text
+>SIP020.151.0.131/5000<     canal principal
+>SIP420.151.0.131/5000<     canal celular (GPRS)
+```
+
+- Antes de la migración, el canal `SIP4` apuntaba a `192.168.1.44/5000`, una IP **privada**
+  que no se alcanza desde la red celular. Por eso tiene que apuntar a la IP pública, igual que
+  `SIP0`.
+- El resto de la configuración del equipo (protocolo, APN, WiFi, timers y reglas de reporte)
+  no cambia. La contraseña del WiFi **no se versiona** (Principio V).
+- Al conectarse, el equipo manda primero las tramas que acumuló sin confirmar. Llegan con
+  `momento_evento` atrasado y se guardan sin conflicto (Principio VII). Es normal ver durante
+  unos minutos lecturas de horas atrás.
+- Confirmación: la consulta de §2.6 muestra lecturas con `momento_recepcion` reciente.
 
 ## 2.7 Levantar el stack localmente (para desarrollo, sin VM)
 
-Es exactamente el mismo procedimiento, sin las secciones específicas de VCN/VM:
+Es el mismo stack, sin las secciones específicas de Azure (§2.1, §2.2):
 
 ```bash
 cd deploy
@@ -284,7 +328,8 @@ ver Complexity Tracking de `plan.md`). Los controles compensatorios ya activos s
 aislamiento de red (solo el puerto UDP se publica) y validación de checksum + `ID` conocido.
 
 **Antes de operar más de un vehículo piloto**, agregar un tercer control: filtrado del
-puerto UDP por rango de IP/APN del operador celular en la Security List de la VCN, para que
+puerto UDP por rango de IP/APN del operador celular en la regla `allow-rinho-udp` del NSG de
+Azure (§2.2), para que
 solo tráfico del operador de la flota pueda alcanzar el receptor. No implementado todavía
 porque el piloto de un solo camión no lo requiere con urgencia, pero queda registrado como
 condición de escalado, no como mejora opcional.
@@ -387,3 +432,36 @@ simulador-viajes` (el pipeline no lo detiene solo).
 > contenedor esté corriendo — cada intento queda en `ERROR`, logueado, sin romper el alta
 > del viaje. Confirmar este valor en el `.env` de la VM **antes** de disparar
 > `deploy_simulador`.
+
+## 8. Salida: cuando se termine el crédito de Azure
+
+El crédito de Azure for Students (100 USD) alcanza, a unos 30,6 USD/mes (VM más IPv4), más o
+menos hasta **fines de febrero de 2027**. Cuando se agota, Azure **apaga** los recursos: no
+cobra, pero el servicio se corta y la base se pierde. Ejecutar este procedimiento **antes del
+15/02/2027**, o antes si llega la alerta del 90 % del presupuesto.
+
+No hay datos que salvar (sin backups, decisión D-06 del plan 017). Mudarse es recrear el
+servidor:
+
+1. **Servidor nuevo.** En otra suscripción u otro proveedor, crear una VM Ubuntu 24.04 de 4 GB
+   o más (ARM64 o x86_64; las imágenes son multi-arch, §1) con IPv4 fija.
+   - Reglas de entrada: UDP 5000 abierto, TCP 8082 solo desde la IP del backend, SSH solo por
+     clave.
+   - En Azure: §2.1 y §2.2. En otro proveedor, replicar esas mismas reglas en su firewall de red.
+2. **Stack.** Seguir §2.4: copiar `deploy/` desde `origin/master` y `deploy/.env`,
+   `vm-setup.sh`, migraciones, servicios y, si hace falta, el simulador. Verificar con §2.6.
+3. **CI.** Actualizar el secret `DEPLOY_HOST` con la IP nueva (y `DEPLOY_USER` o
+   `DEPLOY_SSH_KEY` si cambian).
+4. **Backend.** En la VM del backend, poner `AGROLINK_INGESTA_BASE_URL=http://<IP nueva>:8082`
+   en `.env.production` y recrear el contenedor
+   (`docker compose -f docker-compose.prod.yml up -d --no-deps backend`). Actualizar también el
+   valor por defecto en `AgroLinkBackend/src/main/resources/application-prod.yml` y su test
+   (`TelemetryProfileConfigTest`).
+5. **Dispositivo.** Reprogramar el Rinho a la IP nueva (§2.6b), en `SIP0` y `SIP4`.
+6. **Viajes programados.** Los pendientes vivían en la base vieja
+   (`ingesta.viaje_programado`): volver a programarlos desde el backend.
+7. **Apagar Azure.** Cuando el servidor nuevo reciba tramas del Rinho, borrar el grupo de
+   recursos para no dejar nada consumiendo crédito:
+   ```bash
+   az group delete --name agrolink-rg --yes   # borra VM, disco, IP y NSG
+   ```
