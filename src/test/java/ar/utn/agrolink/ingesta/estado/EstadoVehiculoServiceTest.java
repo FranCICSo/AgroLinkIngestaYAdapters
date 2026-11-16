@@ -3,12 +3,14 @@ package ar.utn.agrolink.ingesta.estado;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
 import ar.utn.agrolink.ingesta.telemetry.EstadoInterpretacion;
 import ar.utn.agrolink.ingesta.telemetry.LecturaTelemetria;
 import ar.utn.agrolink.ingesta.telemetry.LecturaTelemetriaRepository;
 import ar.utn.agrolink.ingesta.telemetry.OrigenOdometro;
+import ar.utn.agrolink.ingesta.telemetry.UltimosValoresCan;
 import java.lang.reflect.Field;
 import java.time.Instant;
 import java.util.List;
@@ -139,6 +141,50 @@ class EstadoVehiculoServiceTest {
         f.set(target, value);
     }
 
+    /** Implementacion de prueba de la proyeccion que devuelve la consulta agregada. */
+    private record Ultimos(
+            Double getCombustiblePct,
+            Instant getCombustiblePctMomento,
+            Double getCombustibleConsumidoL,
+            Instant getCombustibleConsumidoLMomento,
+            Double getOdometroKm,
+            String getOdometroOrigen,
+            Instant getOdometroMomento,
+            String getVin,
+            Instant getVinMomento,
+            Integer getRpm,
+            Instant getRpmMomento,
+            Integer getTemperaturaRefrigeranteC,
+            Instant getTemperaturaRefrigeranteCMomento)
+            implements UltimosValoresCan {}
+
+    // Lo que devolveria la base si la ultima lectura fuera la unica de la ventana: cada campo
+    // no nulo sale de ella, con su momento_evento; cada campo nulo queda nulo y sin momento.
+    private static UltimosValoresCan ultimosDe(LecturaTelemetria l) {
+        Instant m = l.getMomentoEvento();
+        return new Ultimos(
+                l.getCombustiblePct(),
+                l.getCombustiblePct() == null ? null : m,
+                l.getCombustibleConsumidoL(),
+                l.getCombustibleConsumidoL() == null ? null : m,
+                l.getOdometroKm(),
+                l.getOdometroKm() == null ? null : l.getOdometroOrigen().name(),
+                l.getOdometroKm() == null ? null : m,
+                l.getVin(),
+                l.getVin() == null ? null : m,
+                l.getRpm(),
+                l.getRpm() == null ? null : m,
+                l.getTemperaturaRefrigeranteC(),
+                l.getTemperaturaRefrigeranteC() == null ? null : m);
+    }
+
+    private void stubUltimaLectura(LecturaTelemetria l) {
+        when(repository.findFirstByDispositivoIdOrderByMomentoEventoDesc("2326")).thenReturn(Optional.of(l));
+        when(repository.findUltimosValoresCanNoNulos(
+                        "2326", l.getMomentoEvento().minus(EstadoVehiculoService.VENTANA_ULTIMO_VALOR_CAN), l.getMomentoEvento()))
+                .thenReturn(ultimosDe(l));
+    }
+
     @Test
     void sinLecturas_lanzaVehiculoSinTelemetriaException() {
         when(repository.findFirstByDispositivoIdOrderByMomentoEventoDesc(anyString())).thenReturn(Optional.empty());
@@ -151,8 +197,7 @@ class EstadoVehiculoServiceTest {
     @Test
     void lecturaCompleta_devuelveLosTresBloquesPoblados() {
         Instant momentoEvento = Instant.parse("2026-09-09T21:42:10Z");
-        when(repository.findFirstByDispositivoIdOrderByMomentoEventoDesc("2326"))
-                .thenReturn(Optional.of(lecturaCompleta(1, momentoEvento)));
+        stubUltimaLectura(lecturaCompleta(1, momentoEvento));
 
         EstadoVehiculoDto dto = new EstadoVehiculoService(repository).obtenerEstado("2326");
 
@@ -177,8 +222,7 @@ class EstadoVehiculoServiceTest {
     @Test
     void lecturaParcialSinFixGps_posicionEnNullPeroLecturaSeDevuelve() {
         Instant momentoEvento = Instant.parse("2026-09-09T21:45:00Z");
-        when(repository.findFirstByDispositivoIdOrderByMomentoEventoDesc("2326"))
-                .thenReturn(Optional.of(lecturaParcialSinFixGps(1, momentoEvento)));
+        stubUltimaLectura(lecturaParcialSinFixGps(1, momentoEvento));
 
         EstadoVehiculoDto dto = new EstadoVehiculoService(repository).obtenerEstado("2326");
 
@@ -223,7 +267,7 @@ class EstadoVehiculoServiceTest {
                         EstadoInterpretacion.COMPLETA,
                         List.of(),
                         "{\"3\":\"45\"}");
-        when(repository.findFirstByDispositivoIdOrderByMomentoEventoDesc("2326")).thenReturn(Optional.of(lecturaGps));
+        stubUltimaLectura(lecturaGps);
 
         EstadoVehiculoDto dto = new EstadoVehiculoService(repository).obtenerEstado("2326");
 
@@ -258,8 +302,7 @@ class EstadoVehiculoServiceTest {
                         EstadoInterpretacion.COMPLETA,
                         List.of(),
                         "{\"3\":\"45\"}");
-        when(repository.findFirstByDispositivoIdOrderByMomentoEventoDesc("2326"))
-                .thenReturn(Optional.of(lecturaSinOdometro));
+        stubUltimaLectura(lecturaSinOdometro);
 
         EstadoVehiculoDto dto = new EstadoVehiculoService(repository).obtenerEstado("2326");
 
@@ -272,11 +315,99 @@ class EstadoVehiculoServiceTest {
         // El repositorio ya ordena por momento_evento DESC (findFirst...OrderByMomentoEventoDesc):
         // este test fija que el service confia en esa fila sin reordenar por su cuenta.
         Instant masReciente = Instant.parse("2026-09-09T21:50:00Z");
-        when(repository.findFirstByDispositivoIdOrderByMomentoEventoDesc("2326"))
-                .thenReturn(Optional.of(lecturaCompleta(2, masReciente)));
+        stubUltimaLectura(lecturaCompleta(2, masReciente));
 
         EstadoVehiculoDto dto = new EstadoVehiculoService(repository).obtenerEstado("2326");
 
         assertThat(dto.dispositivo().momentoEvento().toInstant()).isEqualTo(masReciente);
+    }
+
+    @Test
+    void ultimaLecturaSinCan_completaCamposLentosConUltimoValorNoNuloYSuMomento() {
+        // La ultima trama trae posicion pero no CAN; la base informa los ultimos valores no
+        // nulos de las 24 h previas, que salen de lecturas mas viejas.
+        Instant ultima = Instant.parse("2026-09-09T22:00:00Z");
+        Instant conCombustible = Instant.parse("2026-09-09T21:30:00Z");
+        Instant conVin = Instant.parse("2026-09-09T08:00:00Z");
+        LecturaTelemetria sinCan =
+                lectura(
+                        7, ultima, ultima.plusSeconds(1), -34.61, -58.39, 55.0, 90, null, null, null, null, null,
+                        null, null, null, true, null, null, 10, EstadoInterpretacion.PARCIAL,
+                        List.of("combustible_pct"), "{}");
+        when(repository.findFirstByDispositivoIdOrderByMomentoEventoDesc("2326")).thenReturn(Optional.of(sinCan));
+        when(repository.findUltimosValoresCanNoNulos(
+                        eq("2326"), eq(ultima.minus(EstadoVehiculoService.VENTANA_ULTIMO_VALOR_CAN)), eq(ultima)))
+                .thenReturn(new Ultimos(
+                        61.5, conCombustible, 29_950.0, conCombustible, 183.9, "ECU", conCombustible,
+                        "1M8GDM9A_KP042788", conVin, 1800, conCombustible, 88, conCombustible));
+
+        EstadoVehiculoDto dto = new EstadoVehiculoService(repository).obtenerEstado("2326");
+
+        // La posicion y el dispositivo siguen siendo los de la ultima lectura.
+        assertThat(dto.posicion().latitud()).isEqualTo(-34.61);
+        assertThat(dto.posicion().velocidadKmh()).isEqualTo(55.0);
+        assertThat(dto.dispositivo().momentoEvento().toInstant()).isEqualTo(ultima);
+        // Los campos lentos se arrastran, cada uno con el momento de la lectura de origen.
+        assertThat(dto.canBus().combustiblePct()).isEqualTo(61.5);
+        assertThat(dto.canBus().combustiblePctMomento().toInstant()).isEqualTo(conCombustible);
+        assertThat(dto.canBus().combustibleConsumidoL()).isEqualTo(29_950.0);
+        assertThat(dto.canBus().combustibleConsumidoLMomento().toInstant()).isEqualTo(conCombustible);
+        assertThat(dto.canBus().odometroKm()).isEqualTo(183.9);
+        assertThat(dto.canBus().odometroOrigen()).isEqualTo(OrigenOdometro.ECU);
+        assertThat(dto.canBus().odometroMomento().toInstant()).isEqualTo(conCombustible);
+        assertThat(dto.canBus().vin()).isEqualTo("1M8GDM9A_KP042788");
+        assertThat(dto.canBus().vinMomento().toInstant()).isEqualTo(conVin);
+        assertThat(dto.canBus().rpm()).isEqualTo(1800);
+        assertThat(dto.canBus().rpmMomento().toInstant()).isEqualTo(conCombustible);
+        assertThat(dto.canBus().temperaturaRefrigeranteC()).isEqualTo(88);
+        assertThat(dto.canBus().temperaturaRefrigeranteCMomento().toInstant()).isEqualTo(conCombustible);
+    }
+
+    @Test
+    void ultimaLecturaSinCan_noArrastraCamposNoArrastrables() {
+        // Presion, tension, BLE y velocidad de rueda salen solo de la ultima lectura: aunque
+        // haya valores viejos, si la ultima no los trae quedan en null.
+        Instant ultima = Instant.parse("2026-09-09T22:00:00Z");
+        LecturaTelemetria sinCan =
+                lectura(
+                        7, ultima, ultima.plusSeconds(1), -34.61, -58.39, 0.0, 90, null, null, null, null, null,
+                        null, null, null, false, null, null, 10, EstadoInterpretacion.PARCIAL, List.of(), "{}");
+        when(repository.findFirstByDispositivoIdOrderByMomentoEventoDesc("2326")).thenReturn(Optional.of(sinCan));
+        when(repository.findUltimosValoresCanNoNulos(eq("2326"), eq(ultima.minus(EstadoVehiculoService.VENTANA_ULTIMO_VALOR_CAN)), eq(ultima)))
+                .thenReturn(new Ultimos(
+                        61.5, ultima.minusSeconds(600), null, null, null, null, null, null, null, null, null, null,
+                        null));
+
+        EstadoVehiculoDto dto = new EstadoVehiculoService(repository).obtenerEstado("2326");
+
+        assertThat(dto.canBus().combustiblePct()).isEqualTo(61.5);
+        assertThat(dto.canBus().presionAceiteKpa()).isNull();
+        assertThat(dto.canBus().tensionBateriaV()).isNull();
+        assertThat(dto.canBus().bleTemperaturaC()).isNull();
+        assertThat(dto.canBus().velocidadRuedaKmh()).isNull();
+    }
+
+    @Test
+    void sinValorEnLaVentana_campoYMomentoQuedanEnNull() {
+        Instant ultima = Instant.parse("2026-09-09T22:00:00Z");
+        LecturaTelemetria sinCan =
+                lectura(
+                        7, ultima, ultima.plusSeconds(1), -34.61, -58.39, 0.0, 90, null, null, null, null, null,
+                        null, null, null, false, null, null, 10, EstadoInterpretacion.PARCIAL, List.of(), "{}");
+        stubUltimaLectura(sinCan);
+
+        EstadoVehiculoDto dto = new EstadoVehiculoService(repository).obtenerEstado("2326");
+
+        assertThat(dto.canBus().combustiblePct()).isNull();
+        assertThat(dto.canBus().combustiblePctMomento()).isNull();
+        assertThat(dto.canBus().odometroKm()).isNull();
+        assertThat(dto.canBus().odometroOrigen()).isNull();
+        assertThat(dto.canBus().odometroMomento()).isNull();
+        assertThat(dto.canBus().vin()).isNull();
+        assertThat(dto.canBus().vinMomento()).isNull();
+        assertThat(dto.canBus().rpm()).isNull();
+        assertThat(dto.canBus().rpmMomento()).isNull();
+        assertThat(dto.canBus().temperaturaRefrigeranteC()).isNull();
+        assertThat(dto.canBus().temperaturaRefrigeranteCMomento()).isNull();
     }
 }
