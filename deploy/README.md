@@ -1,23 +1,28 @@
 # Runbook: AgroLink Ingesta y Adaptación de Telemetría
 
 Stack: `timescaledb` + `rinho-receptor` (Node.js, UDP) + `agrolink-ingesta` (Spring Boot,
-HTTP solo lectura), en una VM Oracle Cloud Always Free (Ampere A1, ARM64).
+HTTP solo lectura), en una VM de Azure (Standard_B2pls_v2, ARM64; ver feature 017-migracion-vm-azure).
+Hasta noviembre de 2026 corrió en una VM Oracle Cloud Ampere A1 (ARM64), hoy perdida.
 
-## 1. Imágenes verificadas para ARM64 (T005)
+## 1. Imágenes verificadas para amd64 y arm64
 
-Verificado con `docker manifest inspect` el 2026-08-15. Los tres tienen manifiesto
-`linux/arm64/v8`, condición necesaria para correr en la VM Ampere A1 (decisión D-11:
-`timescale/timescaledb-ha` NO es multi-arch y hubiera roto el despliegue).
+Verificado con `docker manifest inspect` el 2026-11-15 (la verificación original, T005 del
+2026-08-15, cubría solo arm64). Todas publican `linux/amd64` y `linux/arm64`, así que el
+stack corre en VMs x86_64 (producción actual en Azure) y ARM64. Decisión D-11 sigue vigente:
+`timescale/timescaledb-ha` NO es multi-arch y no se usa.
 
-| Imagen | Tag fijado | Digest `linux/arm64` |
-|--------|-----------|----------------------|
-| TimescaleDB | `timescale/timescaledb:2.17.2-pg16` | `sha256:e610e266d36172ffe755b67d7fc9673fa674b479bbad5039757f3e5230f95e33` |
-| Node.js (receptor) | `node:22-alpine` | `sha256:1ef15d33d74602021f35ec64a4e72f4a21e2cfa68ebecd125fbe0c44af8f604a` |
-| JRE (reportes) | `eclipse-temurin:21-jre-alpine` | `sha256:98d19c48d65577f7a09316b88f1cbf3fa8c6f7fad44c44587554977e3b5c1721` |
+| Imagen | Tag | Digest `linux/amd64` | Digest `linux/arm64` |
+|--------|-----|----------------------|----------------------|
+| TimescaleDB | `timescale/timescaledb:2.17.2-pg16` | `sha256:d592c3111392bf8f6ea82651cc581c5dc650ecb543eef6637c2bf19eeb7e37a2` | `sha256:e610e266d36172ffe755b67d7fc9673fa674b479bbad5039757f3e5230f95e33` |
+| Node.js (receptor, simulador) | `node:22-alpine` | `sha256:12f54cafa58d0e96554ae05871e29663ff7241836377dc9a7916449b8adb062c` | `sha256:286344ef340c151df65af44a8c8cf2996c1783073d49b88fabcf90a56ea82023` |
+| JRE (ingesta) | `eclipse-temurin:21-jre-alpine` | `sha256:b6ea71e690a72ba240b3d1b5c477410014862f9ea2cc73ab40e41ff21b03ba1c` | `sha256:23853301373ae9089be2f2d59113c749c7d1ebd140609dec30f1d9bd34d89a32` |
+| Maven (build) | `maven:3.9-eclipse-temurin-21` | `sha256:80034909d9a9f0b89d3d2c583f07f3b7650309bc4e6b886ad5b860b9e1bfa439` | `sha256:71a6832f657180ea206901ffc548c0e73a257cb09b4912619177586d0268d59c` |
 
-Estos son los tags que `deploy/compose.yaml` fija (T016). Si se actualiza alguno, repetir
-esta verificación antes de subir el tag — no asumir que un tag "latest" o una versión mayor
-sigue publicando ARM64.
+`node:22-alpine` y `eclipse-temurin:21-jre-alpine` son tags flotantes (sus digests cambian
+con cada release; los de arriba son los del día de la verificación). Las imágenes propias de
+GHCR (`agrolink-ingesta`, `rinho-receptor`, `simulador-viajes`) se publican para las dos
+arquitecturas desde el CI (§7). Si se cambia algún tag base, verificar que siga publicando
+`linux/amd64` antes de subirlo.
 
 ## 2. Puesta en marcha (VM Oracle Ampere A1)
 
@@ -318,7 +323,7 @@ dar por buena ninguna fila producida por el equipo hasta completarla:_
 ## 7. CI/CD Automatizado
 
 `.github/workflows/ci-cd.yml` hace en cada push a `master` (o `workflow_dispatch` manual):
-`test` (mvn) → `build-and-push` (imágenes `linux/arm64` de `agrolink-ingesta` **y**
+`test` (mvn) → `build-and-push` (imágenes `linux/amd64` + `linux/arm64` de `agrolink-ingesta` **y**
 `rinho-receptor` a `ghcr.io`, cada una con su propio tag) → `migrate-and-deploy` (aplica
 migraciones de esquema pendientes, luego reinicia `agrolink-ingesta` y `rinho-receptor`
 —`timescaledb` queda intacto— y verifica el healthcheck de cada uno). Contrato completo:
@@ -334,9 +339,9 @@ migraciones de esquema pendientes, luego reinicia `agrolink-ingesta` y `rinho-re
 | Secret | Uso |
 |--------|-----|
 | `CR_PAT` | GitHub PAT (`write:packages`/`read:packages`) — lo usa la VM para `docker login ghcr.io` y hacer `pull` de la imagen nueva. |
-| `OCI_HOST` | Hostname/IP pública de la VM. |
-| `OCI_USERNAME` | Usuario SSH en la VM. |
-| `OCI_SSH_KEY` | Clave privada SSH de ese usuario (sin passphrase — `appleboy/ssh-action` no soporta desbloqueo interactivo). |
+| `DEPLOY_HOST` | IP pública de la VM de producción (hoy `20.151.0.131`, Azure). |
+| `DEPLOY_USER` | Usuario SSH en la VM (`ubuntu`). |
+| `DEPLOY_SSH_KEY` | Clave privada SSH de ese usuario (sin passphrase — `appleboy/ssh-action` no soporta desbloqueo interactivo). |
 
 `GITHUB_TOKEN` (implícito, sin configuración) autentica el `push` a `ghcr.io` desde el
 job `build-and-push` — no hace falta crearlo como secret.
@@ -364,7 +369,7 @@ construye ni se publica en `build-and-push`, y `migrate-and-deploy` nunca lo lev
 correrlo en la VM hay que disparar el workflow a mano desde la pestaña *Actions* → **Run
 workflow**, tildando el input **"Desplegar simulador-viajes"**. Eso agrega dos jobs:
 
-- `build-and-push-simulador`: build+push de `ghcr.io/.../...-simulador-viajes` (`linux/arm64`).
+- `build-and-push-simulador`: build+push de `ghcr.io/.../...-simulador-viajes` (`linux/amd64` + `linux/arm64`).
 - `deploy-simulador`: en la VM, aplica el camión 1 de referencia
   (`deploy/seed/simulador-camion-1.sql`, idempotente) y levanta el contenedor con
   `docker compose --profile simulador up -d --no-deps simulador-viajes` — apunta al

@@ -8,6 +8,11 @@ services:
       RINHO_RECEPTOR_DB_PASSWORD: ${RINHO_RECEPTOR_DB_PASSWORD}
       AGROLINK_INGESTA_DB_PASSWORD: ${AGROLINK_INGESTA_DB_PASSWORD}
       SIMULADOR_VIAJES_DB_PASSWORD: ${SIMULADOR_VIAJES_DB_PASSWORD}
+      # timescaledb-tune (solo en el primer init del volumen) dimensiona shared_buffers y
+      # demas segun la RAM que detecta, que es la del HOST, no el limite del contenedor.
+      # Se fija por debajo del limite de memoria de abajo (feature 017: VM de 4 GB).
+      TS_TUNE_MEMORY: 1GB
+      TS_TUNE_NUM_CPUS: 2
     volumes:
       - timescaledb-data:/var/lib/postgresql/data
       - ./db:/docker-entrypoint-initdb.d:ro
@@ -23,7 +28,9 @@ services:
     deploy:
       resources:
         limits:
-          memory: 4g
+          # Feature 017 (VM Azure Standard_B2pls_v2, 4 GB): suma de limites del stack con
+          # simulador = 1536m + 256m + 128m + 512m ~ 2,4 GB, dejando ~1,4 GB al SO.
+          memory: 1536m
 
   rinho-receptor:
     # `image:` + `build:` juntos (mismo patron que agrolink-ingesta, mas abajo): en
