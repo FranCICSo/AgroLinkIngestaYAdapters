@@ -22,3 +22,4 @@ target/
 
 # Datos OSRM preprocesados (ya no se usan: se consulta el demo server publico)
 deploy/osrm-data/
+deploy/azure/ssh-key.pub

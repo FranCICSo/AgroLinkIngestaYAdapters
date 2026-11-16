@@ -66,7 +66,7 @@ jobs:
         run: npm test
 
   # ============================================================================
-  # 2. CD - Build: Construcción de Imagen Docker ARM64 y Push a GHCR
+  # 2. CD - Build: Construcción de Imágenes Docker multi-arch (amd64 + arm64) y Push a GHCR
   # ============================================================================
   build-and-push:
     name: Build & Push Docker Image
@@ -81,7 +81,7 @@ jobs:
       - name: Checkout del código
         uses: actions/checkout@v4
 
-      - name: Configurar QEMU (Soporte ARM64 para Oracle Ampere A1)
+      - name: Configurar QEMU (build cruzado de linux/arm64)
         uses: docker/setup-qemu-action@v3
 
       - name: Configurar Docker Buildx
@@ -103,11 +103,11 @@ jobs:
             type=raw,value=latest
             type=sha,prefix=sha-,format=short
 
-      - name: Compilar y Publicar Imagen de agrolink-ingesta (linux/arm64)
+      - name: Compilar y Publicar Imagen de agrolink-ingesta (linux/amd64 + linux/arm64)
         uses: docker/build-push-action@v5
         with:
           context: .
-          platforms: linux/arm64
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -123,11 +123,11 @@ jobs:
             type=raw,value=latest
             type=sha,prefix=sha-,format=short
 
-      - name: Compilar y Publicar Imagen de rinho-receptor (linux/arm64)
+      - name: Compilar y Publicar Imagen de rinho-receptor (linux/amd64 + linux/arm64)
         uses: docker/build-push-action@v5
         with:
           context: ./rinho-receptor
-          platforms: linux/arm64
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta-rinho-receptor.outputs.tags }}
           labels: ${{ steps.meta-rinho-receptor.outputs.labels }}
@@ -152,7 +152,7 @@ jobs:
       - name: Checkout del código
         uses: actions/checkout@v4
 
-      - name: Configurar QEMU (Soporte ARM64 para Oracle Ampere A1)
+      - name: Configurar QEMU (build cruzado de linux/arm64)
         uses: docker/setup-qemu-action@v3
 
       - name: Configurar Docker Buildx
@@ -174,7 +174,7 @@ jobs:
             type=raw,value=latest
             type=sha,prefix=sha-,format=short
 
-      - name: Compilar y Publicar Imagen de simulador-viajes (linux/arm64)
+      - name: Compilar y Publicar Imagen de simulador-viajes (linux/amd64 + linux/arm64)
         uses: docker/build-push-action@v5
         with:
           # Contexto = raiz del repo (no simulador-viajes/): frameBuilder.js importa
@@ -182,7 +182,7 @@ jobs:
           # (research.md D-01 de la feature 009), y la imagen necesita esos archivos.
           context: .
           file: simulador-viajes/Dockerfile
-          platforms: linux/arm64
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta-simulador.outputs.tags }}
           labels: ${{ steps.meta-simulador.outputs.labels }}
@@ -190,10 +190,10 @@ jobs:
           cache-to: type=gha,mode=max,scope=simulador-viajes
 
   # ============================================================================
-  # 3. CD - Migrate & Deploy: Migraciones de esquema + Despliegue en OCI vía SSH
+  # 3. CD - Migrate & Deploy: Migraciones de esquema + Despliegue en la VM de producción (Azure) vía SSH
   # ============================================================================
   migrate-and-deploy:
-    name: Migrate DB & Deploy to OCI Compute Instance
+    name: Migrate DB & Deploy to Production VM
     needs: build-and-push
     if: github.ref == 'refs/heads/master' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
@@ -202,25 +202,25 @@ jobs:
       - name: Checkout del código
         uses: actions/checkout@v4
 
-      - name: Copiar migraciones y scripts de deploy a la instancia de OCI
+      - name: Copiar migraciones y scripts de deploy a la VM de producción
         uses: appleboy/scp-action@v0.1.7
         with:
-          host: ${{ secrets.OCI_HOST }}
-          username: ${{ secrets.OCI_USERNAME }}
-          key: ${{ secrets.OCI_SSH_KEY }}
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
           source: "deploy/migrations,deploy/scripts,deploy/compose.yaml"
           target: "/home/ubuntu/AgroLinkIngestaYAdapters"
           strip_components: 0
 
-      - name: Ejecutar Migraciones y Despliegue en la Instancia de OCI
+      - name: Ejecutar Migraciones y Despliegue en la VM de producción
         uses: appleboy/ssh-action@v1.0.3
         env:
           CR_PAT: ${{ secrets.CR_PAT }}
           GITHUB_ACTOR: ${{ github.actor }}
         with:
-          host: ${{ secrets.OCI_HOST }}
-          username: ${{ secrets.OCI_USERNAME }}
-          key: ${{ secrets.OCI_SSH_KEY }}
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
           envs: CR_PAT,GITHUB_ACTOR
           script: |
             set -e
@@ -287,7 +287,7 @@ jobs:
   # el rinho-receptor de esa VM ya estan al dia antes de conectar el simulador contra ellos.
   # ============================================================================
   deploy-simulador:
-    name: Deploy simulador-viajes to OCI Compute Instance
+    name: Deploy simulador-viajes to Production VM
     needs: [ build-and-push-simulador, migrate-and-deploy ]
     if: github.event_name == 'workflow_dispatch' && inputs.deploy_simulador == true
     runs-on: ubuntu-latest
@@ -296,25 +296,25 @@ jobs:
       - name: Checkout del código
         uses: actions/checkout@v4
 
-      - name: Copiar el seed del camión 1 de referencia a la instancia de OCI
+      - name: Copiar el seed del camión 1 de referencia a la VM de producción
         uses: appleboy/scp-action@v0.1.7
         with:
-          host: ${{ secrets.OCI_HOST }}
-          username: ${{ secrets.OCI_USERNAME }}
-          key: ${{ secrets.OCI_SSH_KEY }}
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
           source: "deploy/seed/simulador-camion-1.sql"
           target: "/home/ubuntu/AgroLinkIngestaYAdapters"
           strip_components: 0
 
-      - name: Levantar simulador-viajes en la Instancia de OCI
+      - name: Levantar simulador-viajes en la VM de producción
         uses: appleboy/ssh-action@v1.0.3
         env:
           CR_PAT: ${{ secrets.CR_PAT }}
           GITHUB_ACTOR: ${{ github.actor }}
         with:
-          host: ${{ secrets.OCI_HOST }}
-          username: ${{ secrets.OCI_USERNAME }}
-          key: ${{ secrets.OCI_SSH_KEY }}
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
           envs: CR_PAT,GITHUB_ACTOR
           script: |
             set -e
