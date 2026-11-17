@@ -81,6 +81,20 @@ particular. Por eso son configurables.
 
 ## Clarifications
 
+### Enmienda 2026-11-17 — temperatura arrastrada por la feature 018
+
+- Desde la feature `018-estado-ultimo-valor-can`, `/estado` puede devolver en
+  `canBus.temperaturaRefrigeranteC` el último valor no nulo de las 24 h previas cuando la última
+  trama llega sin datos CAN, con su momento en `canBus.temperaturaRefrigeranteCMomento`.
+- Problema: el backend evaluaba la alerta con `dispositivo.momentoEvento` como momento de la lectura.
+  Un valor arrastrado entraba en cada poll como si fuera nuevo, mantenía abierta una alerta con datos
+  viejos y, si se cerraba a mano, la volvía a abrir durante hasta 24 h.
+- Decisión: `ENGINE_OVERHEAT` se evalúa solo con una temperatura de la última lectura, es decir, con
+  `temperaturaRefrigeranteCMomento` igual a `dispositivo.momentoEvento`, o ausente si la ingesta no
+  tiene la feature 018. Un valor arrastrado sigue llegando al mapa de flota (FR-008 de la spec 018).
+- Consecuencia: la máquina de estados de la alerta no cambia. Se comporta igual que antes de la
+  feature 018, porque solo recibe las temperaturas que vienen en la última trama.
+
 ### Session 2026-11-10
 
 - Q: ¿Cómo se activa el sobrecalentamiento de motor en el simulador? → A: De dos formas, las dos

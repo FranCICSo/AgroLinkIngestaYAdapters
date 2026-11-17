@@ -1,0 +1,405 @@
+openapi: 3.1.0
+
+info:
+  title: AgroLink Ingesta y Adaptación — API de Estado de Vehículo
+  version: 7.0.0
+  description: |
+    Contrato HTTP de salida del servicio AgroLinkIngestaYAdaptacion (Spring Boot) para
+    consultar el estado más reciente de un vehículo por su identificador de dispositivo
+    IoT.
+
+    Reemplaza a la versión 6.0.0 de este mismo contrato (feature 010). **Cambio aditivo,
+    sin ruptura de forma, pero con cambio de semántica**:
+
+    - `vin`, `rpm`, `odometroKm`/`odometroOrigen`, `combustibleConsumidoL`, `combustiblePct`
+      y `temperaturaRefrigeranteC` ya no salen necesariamente de la última lectura. Cada
+      uno es el último valor no nulo de las 24 h previas a ella.
+    - Cada uno gana un campo `<campo>Momento` con el momento de la lectura de la que salió
+      (`odometroMomento` cubre a `odometroKm` y `odometroOrigen`).
+
+    Ningún campo existente cambia de nombre, tipo ni bloque. Un consumidor que use alguno
+    de esos valores como "lectura nueva" (por ejemplo, para disparar una alerta) tiene que
+    comparar su `*Momento` con `dispositivo.momentoEvento` (spec 018, FR-008 y FR-009).
+
+    Feature: 018-estado-ultimo-valor-can
+
+servers:
+  - url: http://localhost:${VEHICULO_ESTADO_HTTP_PORT}
+    description: Puerto publicado al host, dedicado exclusivamente a esta API (feature 002, research.md D-01)
+    variables:
+      VEHICULO_ESTADO_HTTP_PORT:
+        default: '8082'
+
+paths:
+  /api/v1/vehiculos/{dispositivoId}/estado:
+    get:
+      summary: Estado más reciente de un vehículo (posición, CAN bus, dispositivo)
+      description: |
+        Devuelve un único objeto derivado de la lectura de telemetría con `momento_evento`
+        más reciente para el identificador de dispositivo dado (FR-002, FR-006, feature 002).
+        `posicion`, `dispositivo` y los campos de `canBus` no arrastrables salen solo de esa
+        lectura.
+
+        **Campos arrastrables** (feature 018): `vin`, `rpm`, `odometroKm`/`odometroOrigen`,
+        `combustibleConsumidoL`, `combustiblePct` y `temperaturaRefrigeranteC` toman, cada uno
+        por separado, el último valor no nulo de las lecturas del dispositivo con
+        `momento_evento` entre 24 h antes de la última lectura y la última lectura inclusive.
+        La ventana se cuenta desde la última lectura, no desde la hora actual. Cada uno trae
+        su `<campo>Momento`. Si es igual a `dispositivo.momentoEvento`, el valor vino en la
+        última lectura. Nunca se promedian valores.
+
+        **Semántica de "no encontrado"**: sin cambios respecto de la feature 002 — un
+        identificador desconocido y uno sin lecturas registradas devuelven **404**.
+
+        **Semántica de "no informado" dentro de `canBus`** (FR-010, feature 003; FR-004,
+        feature 004; FR-002, feature 010): cualquier campo puede venir `null`. Un campo no
+        arrastrable viene `null` si la última lectura no lo trajo. Un campo arrastrable viene
+        `null`, junto con su `*Momento`, si ninguna lectura de la ventana lo trajo (FR-005,
+        feature 018). Un `null` nunca significa "el valor es cero" (SC-004, feature 003;
+        SC-003, feature 010).
+      operationId: obtenerEstadoVehiculo
+      parameters:
+        - name: dispositivoId
+          in: path
+          required: true
+          description: |
+            Identificador de dispositivo IoT (equivalente a `Vehicle.iotDeviceId` en
+            AgroLinkBackend y a `dispositivo_id` en telemetría). No es la patente.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 20
+          example: '2326'
+      responses:
+        '200':
+          description: Estado más reciente conocido del vehículo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EstadoVehiculo'
+              examples:
+                lecturaCompleta:
+                  summary: La última lectura trae todos los valores de canBus (cada *Momento es el de esa lectura)
+                  value:
+                    posicion:
+                      latitud: -34.603722
+                      longitud: -58.381592
+                      velocidadKmh: 62.4
+                      rumboGrados: 184
+                    canBus:
+                      vin: '1M8GDM9A_KP042788'
+                      vinMomento: '2026-09-09T21:42:10Z'
+                      rpm: 2200
+                      rpmMomento: '2026-09-09T21:42:10Z'
+                      velocidadRuedaKmh: 45
+                      odometroKm: 66010.0
+                      odometroOrigen: ECU
+                      odometroMomento: '2026-09-09T21:42:10Z'
+                      combustibleConsumidoL: 30000.0
+                      combustibleConsumidoLMomento: '2026-09-09T21:42:10Z'
+                      combustiblePct: 75.0
+                      combustiblePctMomento: '2026-09-09T21:42:10Z'
+                      temperaturaRefrigeranteC: 90
+                      temperaturaRefrigeranteCMomento: '2026-09-09T21:42:10Z'
+                      presionAceiteKpa: 340
+                      tensionBateriaV: 13.2
+                      bleTemperaturaC: 4.2
+                    dispositivo:
+                      dispositivoId: '2326'
+                      momentoEvento: '2026-09-09T21:42:10Z'
+                      momentoRecepcion: '2026-09-09T21:42:11Z'
+                      ignicion: true
+                      satelites: 9
+                      estadoInterpretacion: COMPLETA
+                      camposFaltantes: []
+                ultimaLecturaSinCan:
+                  summary: La última lectura no trae CAN; los campos arrastrables salen de lecturas anteriores
+                  value:
+                    posicion:
+                      latitud: -34.611200
+                      longitud: -58.390100
+                      velocidadKmh: 55.0
+                      rumboGrados: 90
+                    canBus:
+                      vin: '1M8GDM9A_KP042788'
+                      vinMomento: '2026-09-09T08:00:00Z'
+                      rpm: 1800
+                      rpmMomento: '2026-09-09T21:30:00Z'
+                      velocidadRuedaKmh: null
+                      odometroKm: 66012.4
+                      odometroOrigen: ECU
+                      odometroMomento: '2026-09-09T21:30:00Z'
+                      combustibleConsumidoL: 30001.5
+                      combustibleConsumidoLMomento: '2026-09-09T21:30:00Z'
+                      combustiblePct: 74.5
+                      combustiblePctMomento: '2026-09-09T21:30:00Z'
+                      temperaturaRefrigeranteC: 88
+                      temperaturaRefrigeranteCMomento: '2026-09-09T21:30:00Z'
+                      presionAceiteKpa: null
+                      tensionBateriaV: null
+                      bleTemperaturaC: null
+                    dispositivo:
+                      dispositivoId: '2326'
+                      momentoEvento: '2026-09-09T22:00:00Z'
+                      momentoRecepcion: '2026-09-09T22:00:01Z'
+                      ignicion: true
+                      satelites: 10
+                      estadoInterpretacion: PARCIAL
+                      camposFaltantes: ['combustiblePct']
+                lecturaParcial:
+                  summary: Lectura sin fix GPS y sin ningún dato CAN en las últimas 24 h
+                  value:
+                    posicion:
+                      latitud: null
+                      longitud: null
+                      velocidadKmh: null
+                      rumboGrados: null
+                    canBus:
+                      vin: null
+                      vinMomento: null
+                      rpm: null
+                      rpmMomento: null
+                      velocidadRuedaKmh: null
+                      odometroKm: null
+                      odometroOrigen: null
+                      odometroMomento: null
+                      combustibleConsumidoL: null
+                      combustibleConsumidoLMomento: null
+                      combustiblePct: null
+                      combustiblePctMomento: null
+                      temperaturaRefrigeranteC: null
+                      temperaturaRefrigeranteCMomento: null
+                      presionAceiteKpa: null
+                      tensionBateriaV: null
+                      bleTemperaturaC: null
+                    dispositivo:
+                      dispositivoId: '2326'
+                      momentoEvento: '2026-09-09T21:45:00Z'
+                      momentoRecepcion: '2026-09-09T21:45:01Z'
+                      ignicion: null
+                      satelites: 0
+                      estadoInterpretacion: PARCIAL
+                      camposFaltantes: ['latitud', 'longitud', 'combustiblePct']
+        '400':
+          description: El identificador de dispositivo está vacío o es inválido (feature 002, FR-009).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: 'about:blank'
+                title: 'Parámetro inválido'
+                status: 400
+                detail: "El identificador de dispositivo no puede estar vacío."
+        '404':
+          description: No hay ninguna lectura de telemetría para ese identificador de dispositivo (feature 002).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: 'about:blank'
+                title: 'Vehículo sin telemetría'
+                status: 404
+                detail: "No hay lecturas de telemetria para el dispositivo 'XYZ999'."
+                dispositivoId: 'XYZ999'
+
+components:
+  schemas:
+
+    EstadoVehiculo:
+      type: object
+      required: [posicion, canBus, dispositivo]
+      properties:
+        posicion:
+          $ref: '#/components/schemas/Posicion'
+        canBus:
+          $ref: '#/components/schemas/CanBus'
+        dispositivo:
+          $ref: '#/components/schemas/DispositivoInfo'
+
+    Posicion:
+      type: object
+      description: Sin cambios respecto de la feature 002. Nulo campo a campo cuando la lectura más reciente no tenía fix GPS.
+      properties:
+        latitud:
+          type: [number, 'null']
+          example: -34.603722
+        longitud:
+          type: [number, 'null']
+          example: -58.381592
+        velocidadKmh:
+          type: [number, 'null']
+          description: Velocidad reportada por GPS (distinta de `canBus.velocidadRuedaKmh`, que viene del CAN bus).
+          example: 62.4
+        rumboGrados:
+          type: [integer, 'null']
+          example: 184
+
+    CanBus:
+      type: object
+      description: |
+        Incluye los diez valores CAN/vehículo/sensor soportados; cualquier campo puede ser
+        `null` de forma independiente ("no informado").
+
+        Desde la feature 018, los campos marcados como **arrastrables** son el último valor
+        no nulo de las 24 h previas a la última lectura, y traen su `*Momento`. Los demás
+        salen solo de la última lectura.
+      properties:
+        vin:
+          type: [string, 'null']
+          description: VIN del vehículo (CAN id `1`), columna propia desde la feature 003. Nunca se convierte a número. **Arrastrable** (feature 018).
+          example: '1M8GDM9A_KP042788'
+        vinMomento:
+          type: [string, 'null']
+          format: date-time
+          description: |
+            Momento (`momento_evento`, en UTC) de la lectura de la que salió `vin`.
+            `null` si el valor es `null`. Igual a `dispositivo.momentoEvento` si el valor vino
+            en la última lectura (feature 018, FR-004).
+          example: '2026-09-09T21:30:00Z'
+        rpm:
+          type: [integer, 'null']
+          description: |
+            RPM de motor (CAN id `2`), columna propia desde la feature 003. **Arrastrable**
+            (feature 018): con el motor apagado puede ser un valor de cuando estaba en
+            marcha. Ver `rpmMomento`.
+          example: 2200
+        rpmMomento:
+          type: [string, 'null']
+          format: date-time
+          description: |
+            Momento (`momento_evento`, en UTC) de la lectura de la que salió `rpm`.
+            `null` si el valor es `null`. Igual a `dispositivo.momentoEvento` si el valor vino
+            en la última lectura (feature 018, FR-004).
+          example: '2026-09-09T21:30:00Z'
+        velocidadRuedaKmh:
+          type: [integer, 'null']
+          description: Velocidad de rueda reportada por el CAN bus (CAN id `3`), leída a demanda desde `datos_can` — es el único de los nueve valores sin columna propia.
+          example: 45
+        odometroKm:
+          type: [number, 'null']
+          description: |
+            Odómetro en kilómetros, cualquiera sea su origen (ver `odometroOrigen`).
+            Desde la feature 005, el almacenamiento interno (`lectura_telemetria.odometro_km`)
+            ya está en kilómetros: esta respuesta lo expone directo, sin ninguna
+            conversión de unidad de por medio. **Arrastrable** (feature 018).
+          example: 66010.0
+        odometroOrigen:
+          type: [string, 'null']
+          enum: [ECU, GPS, null]
+          description: Origen de `odometroKm`. Sale siempre de la misma lectura que `odometroKm` (feature 018, FR-003).
+        odometroMomento:
+          type: [string, 'null']
+          format: date-time
+          description: |
+            Momento (`momento_evento`, en UTC) de la lectura de la que salió `odometroKm` (y `odometroOrigen`).
+            `null` si el valor es `null`. Igual a `dispositivo.momentoEvento` si el valor vino
+            en la última lectura (feature 018, FR-004).
+          example: '2026-09-09T21:30:00Z'
+        combustibleConsumidoL:
+          type: [number, 'null']
+          description: Combustible consumido (CAN id `14`), columna propia, en litros. **Arrastrable** (feature 018).
+          example: 30000.0
+        combustibleConsumidoLMomento:
+          type: [string, 'null']
+          format: date-time
+          description: |
+            Momento (`momento_evento`, en UTC) de la lectura de la que salió `combustibleConsumidoL`.
+            `null` si el valor es `null`. Igual a `dispositivo.momentoEvento` si el valor vino
+            en la última lectura (feature 018, FR-004).
+          example: '2026-09-09T21:30:00Z'
+        combustiblePct:
+          type: [number, 'null']
+          description: Nivel de combustible en %. **Arrastrable** (feature 018).
+          example: 75.0
+        combustiblePctMomento:
+          type: [string, 'null']
+          format: date-time
+          description: |
+            Momento (`momento_evento`, en UTC) de la lectura de la que salió `combustiblePct`.
+            `null` si el valor es `null`. Igual a `dispositivo.momentoEvento` si el valor vino
+            en la última lectura (feature 018, FR-004).
+          example: '2026-09-09T21:30:00Z'
+        temperaturaRefrigeranteC:
+          type: [integer, 'null']
+          description: |
+            Temperatura de refrigerante en °C (CAN id `2A`), columna propia. **Arrastrable**
+            (feature 018): un consumidor que evalúe alertas con este valor debe usar solo el
+            de la última lectura (`temperaturaRefrigeranteCMomento` igual a
+            `dispositivo.momentoEvento`).
+          example: 90
+        temperaturaRefrigeranteCMomento:
+          type: [string, 'null']
+          format: date-time
+          description: |
+            Momento (`momento_evento`, en UTC) de la lectura de la que salió `temperaturaRefrigeranteC`.
+            `null` si el valor es `null`. Igual a `dispositivo.momentoEvento` si el valor vino
+            en la última lectura (feature 018, FR-004).
+          example: '2026-09-09T21:30:00Z'
+        presionAceiteKpa:
+          type: [integer, 'null']
+          description: Presión de aceite en kPa (CAN id `2C`), columna propia.
+          example: 340
+        tensionBateriaV:
+          type: [number, 'null']
+          description: |
+            Tensión de batería del vehículo, en voltios. Reubicado desde `dispositivo`
+            (spec 003, Clarifications, sesión 2026-09-13) — ya no aparece en ese bloque.
+          example: 13.2
+        bleTemperaturaC:
+          type: [number, 'null']
+          description: |
+            Temperatura de la carga reportada por un sensor BLE (slot 0) emparejado al
+            equipo, en °C. Columna propia desde la feature 008 (ingesta); expuesta acá
+            desde la feature 010. `null` si el vehículo no tiene sensor o el equipo no lo
+            reportó en la lectura usada para responder — nunca 0 por ausencia (FR-002,
+            SC-003, feature 010). No es un valor CAN bus (no viene del ECU del vehículo,
+            sino de un sensor inalámbrico externo); vive en este bloque junto al resto de
+            los datos de vehículo/carga por continuidad con el contrato existente
+            (research.md D-01).
+          example: 4.2
+
+    DispositivoInfo:
+      type: object
+      description: |
+        No incluye `tensionBateriaV` (está en `canBus` — ver descripción de ese
+        schema). El resto de los campos no cambia respecto de la feature 002.
+      required: [dispositivoId, momentoEvento, momentoRecepcion, estadoInterpretacion, camposFaltantes]
+      properties:
+        dispositivoId:
+          type: string
+          example: '2326'
+        momentoEvento:
+          type: string
+          format: date-time
+        momentoRecepcion:
+          type: string
+          format: date-time
+        ignicion:
+          type: [boolean, 'null']
+        satelites:
+          type: [integer, 'null']
+          example: 9
+        estadoInterpretacion:
+          type: string
+          enum: [COMPLETA, PARCIAL]
+        camposFaltantes:
+          type: array
+          items:
+            type: string
+
+    Problem:
+      type: object
+      required: [type, title, status]
+      properties:
+        type:
+          type: string
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        dispositivoId:
+          type: string
