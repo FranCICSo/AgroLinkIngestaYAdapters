@@ -302,6 +302,12 @@ camión baja trama a trama, informa un valor debajo de 7 % y la trama siguiente 
   hasta que alguien la resuelva a mano. No se resuelve sola sin una lectura normalizada.
 - **Viaje que termina con la alerta abierta**: la alerta sigue abierta asociada al viaje en el que
   ocurrió. Se resuelve cuando llega una lectura normalizada, aunque ya no haya viaje.
+- **Alerta "Sin viaje en curso" de un camión simulado** (observado el 2026-11-17): el backend
+  evalúa el motor de todo vehículo con dispositivo, tenga o no viaje (FR-010). Pero un camión Rinho
+  simulado seguía en ida y vuelta después de cerrarse su viaje en AgroLink, y cada vuelta sorteaba
+  su 5 %, así que abría alertas sin viaje. Lo corrige la detención de la feature 014 (Historia 3,
+  research.md D-14 de esa feature): al completarse o cancelarse el viaje, el simulador deja de
+  emitir para ese camión.
 
 - **Nivel de combustible exactamente en el umbral** (7 %): todavía no recarga; recarga cuando
   queda por debajo.

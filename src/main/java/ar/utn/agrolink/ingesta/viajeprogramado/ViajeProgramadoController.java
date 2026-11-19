@@ -45,9 +45,9 @@ public class ViajeProgramadoController {
     }
 
     /**
-     * Detencion (contrato 026 v2 §3). Por ahora solo para vehiculos Samsara (feature 015): la
-     * detencion de simulaciones Rinho es de la feature 014, todavia sin implementar, y hasta entonces
-     * responde 404 como ya recibia AgroLinkBackend.
+     * Detencion (contrato 026 v2 §3). Samsara (feature 015) va al emisor Samsara; Rinho (feature 014,
+     * Historia 3) detiene la simulacion del camion en simulador-viajes. Un dispositivo fuera de las
+     * dos listas sigue respondiendo 404.
      */
     @PostMapping(
             value = "/api/v1/vehiculos/{dispositivoId}/viajes-simulados/{tripCode}/detencion",
@@ -56,10 +56,11 @@ public class ViajeProgramadoController {
             @PathVariable String dispositivoId,
             @PathVariable String tripCode,
             @RequestBody(required = false) DetencionRequest request) {
-        if (!VehiculosSamsaraSimulados.esSamsara(dispositivoId)) {
-            throw new DispositivoNoSimuladoException(dispositivoId);
+        String motivo = request == null ? null : request.motivo();
+        if (VehiculosSamsaraSimulados.esSamsara(dispositivoId)) {
+            return avisoSamsara.detener(dispositivoId, tripCode, motivo);
         }
-        return avisoSamsara.detener(dispositivoId, tripCode, request == null ? null : request.motivo());
+        return ResponseEntity.ok(service.detener(dispositivoId, tripCode, motivo));
     }
 
     public record DetencionRequest(String motivo) {
@@ -135,6 +136,28 @@ public class ViajeProgramadoController {
         problem.setProperty("error", "viaje_no_modificable");
         problem.setProperty("estadoActual", ex.getEstadoActual());
         return ResponseEntity.status(HttpStatus.CONFLICT)
+                .contentType(MediaType.APPLICATION_PROBLEM_JSON)
+                .body(problem);
+    }
+
+    @ExceptionHandler(ViajeDeOtroDispositivoException.class)
+    public ResponseEntity<ProblemDetail> handleViajeDeOtroDispositivo(ViajeDeOtroDispositivoException ex) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, ex.getMessage());
+        problem.setTitle("Viaje de otro dispositivo");
+        problem.setType(URI.create("about:blank"));
+        problem.setProperty("error", "viaje_de_otro_dispositivo");
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .contentType(MediaType.APPLICATION_PROBLEM_JSON)
+                .body(problem);
+    }
+
+    @ExceptionHandler(SimuladorNoDisponibleException.class)
+    public ResponseEntity<ProblemDetail> handleSimuladorNoDisponible(SimuladorNoDisponibleException ex) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_GATEWAY, ex.getMessage());
+        problem.setTitle("Simulador no disponible");
+        problem.setType(URI.create("about:blank"));
+        problem.setProperty("error", "simulador_no_disponible");
+        return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
                 .contentType(MediaType.APPLICATION_PROBLEM_JSON)
                 .body(problem);
     }

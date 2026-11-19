@@ -67,7 +67,35 @@ Iguales a 011 (`201`, `400 validacion`, `409 nombre_duplicado`, `422 trazado_no_
 
 ---
 
-## 2. `POST /viajes/detener` (nuevo)
+## 2. Detención
+
+### 2.0 Implementado: `POST /camiones/{camionId}/detencion` (2026-11-17, research.md D-14)
+
+Mientras el simulador no guarde el `trip_code` (Historias 1 y 2), la detención es por camión.
+`agrolink-ingesta` decide si corresponde detener (el `tripCode` es la simulación vigente de ese
+dispositivo) y recién entonces llama.
+
+```jsonc
+// Cuerpo opcional, solo para el log; uno inválido no impide detener.
+{ "tripCode": "VIAJE-2026-0955", "motivo": "COMPLETADO" }
+```
+
+Efecto: `UPDATE simulador.viaje SET estado = 'finalizado' WHERE camion_id = :camionId AND estado =
+'en_curso' RETURNING id`, sin crear el viaje de vuelta. Idempotente.
+
+| Status | Cuerpo | Cuándo |
+|---|---|---|
+| `200` | `{ "camionId", "viajesFinalizados": [42], "efecto": "DETENIDA" }` | El camión tenía un viaje `en_curso`. |
+| `200` | `{ "camionId", "viajesFinalizados": [], "efecto": "SIN_VIAJE_EN_CURSO" }` | No tenía ninguno. |
+| `400` | `{ "error": "validacion", "detalle" }` | `camionId` con caracteres fuera de `[0-9A-Za-z_-]`. |
+| `404` | `{ "error": "camion_no_encontrado", "detalle" }` | No existe en `simulador.camion`. `agrolink-ingesta` lo trata como "nada que detener". |
+| `405` | `{ "error": "metodo_no_permitido" }` | Método distinto de `POST`. |
+| `500` | `{ "error": "interno", "detalle" }` | Error de base; `agrolink-ingesta` lo traduce a `502 simulador_no_disponible`. |
+
+El ciclo deja de emitir para ese camión a partir del siguiente (≤ `SIMULADOR_CICLO_MS`). Si el
+ciclo estaba completando la ruta en ese momento, no crea la vuelta.
+
+### 2.1 Diseño original (pendiente, requiere `trip_code`): `POST /viajes/detener`
 
 ```jsonc
 { "dispositivoId": "tra-demo-004", "tripCode": "VIAJE-AB12CD34" }

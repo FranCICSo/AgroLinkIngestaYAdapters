@@ -10,6 +10,7 @@ import org.springframework.boot.web.client.ClientHttpRequestFactories;
 import org.springframework.boot.web.client.ClientHttpRequestFactorySettings;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClientException;
 
 /**
@@ -63,6 +64,41 @@ public class SimuladorViajesClient {
         } catch (RestClientException ex) {
             return SimulacionResultado.fallo(ex.getMessage());
         }
+    }
+
+    /** Resultado de {@link #detener}: nunca una excepcion propagada, igual que el arranque. */
+    public enum Detencion { DETENIDA, SIN_VIAJE_EN_CURSO, FALLO }
+
+    public record DetencionSimulador(Detencion resultado, String detalle) {
+    }
+
+    /**
+     * Feature 014, Historia 3: {@code POST /camiones/{camionId}/detencion} de simulador-viajes
+     * (contracts/simulador-viajes-http.md §3). Un {@code 404 camion_no_encontrado} cuenta como
+     * "no hay nada que detener", no como falla.
+     */
+    public DetencionSimulador detener(String iotDeviceId, String tripCode, String motivo) {
+        try {
+            DetencionSimuladorResponse respuesta = restClient.post()
+                    .uri("/camiones/{camionId}/detencion", iotDeviceId)
+                    .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                    .body(new DetencionSimuladorRequest(tripCode, motivo))
+                    .retrieve()
+                    .body(DetencionSimuladorResponse.class);
+            boolean detuvo = respuesta != null && "DETENIDA".equals(respuesta.efecto());
+            return new DetencionSimulador(detuvo ? Detencion.DETENIDA : Detencion.SIN_VIAJE_EN_CURSO, null);
+        } catch (HttpClientErrorException.NotFound ex) {
+            return new DetencionSimulador(Detencion.SIN_VIAJE_EN_CURSO, "camion_no_encontrado");
+        } catch (RestClientException ex) {
+            return new DetencionSimulador(Detencion.FALLO, ex.getMessage());
+        }
+    }
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private record DetencionSimuladorRequest(String tripCode, String motivo) {
+    }
+
+    private record DetencionSimuladorResponse(String camionId, String efecto) {
     }
 
     private RutaRequest construirRequest(ViajeProgramado viajeProgramado) {

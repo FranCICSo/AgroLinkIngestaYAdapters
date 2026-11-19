@@ -96,6 +96,29 @@ curl -i -X POST $ING/tra-demo-004/viajes-simulados/QS-2/detencion \
 | Detener `QS-2` contra `/900001/…` | `409 viaje_de_otro_dispositivo` |
 | Detener `QS-3` (en `ERROR`) con simulador caído | `200 SIN_SIMULACION_EN_CURSO` + `WARN` |
 
+## 4b. US3 implementada sobre el modo programado (research.md D-14)
+
+Con `make dev` (simulador como proceso local en `:8090`, ingesta en `:8083`):
+
+1. En AgroLink, iniciar un viaje con un camión Rinho simulado (por ejemplo AGL005, `900001`) y
+   esperar el log de ingesta `Simulacion del viaje programado arrancada: tripCode=…`.
+2. Completar o cancelar el viaje en AgroLink. AgroLinkBackend manda la detención sola. A mano:
+   ```bash
+   curl -i -X POST localhost:8083/api/v1/vehiculos/900001/viajes-simulados/<tripCode>/detencion \
+     -H 'Content-Type: application/json' -d '{"motivo":"COMPLETADO"}'
+   ```
+
+| Paso | Esperado |
+|---|---|
+| Primera detención | `200 {estado: DETENIDO, efecto: DETENIDA}`; log del simulador `Detencion de simulacion Rinho`; `curl localhost:8090/camiones/900001/falla-motor` → `409 sin_viaje_en_curso`; sin tramas nuevas de `900001` tras ≤ 1 ciclo |
+| Repetir | `200 SIN_SIMULACION_EN_CURSO` |
+| Volver a iniciar el mismo `tripCode` | `409 viaje_no_modificable`, `estadoActual: DETENIDO` |
+| Detener un viaje anterior del camión, reemplazado por uno nuevo | `200 SIN_SIMULACION_EN_CURSO` y el viaje nuevo sigue simulándose |
+| `tripCode` de `900001` contra `/900002/…` | `409 viaje_de_otro_dispositivo` |
+| Simulador apagado, viaje `DISPARADO` | `502 simulador_no_disponible`; la fila sigue `DISPARADO` con `ultimo_error` |
+
+Directo contra el simulador: `curl -s -X POST localhost:8090/camiones/900001/detencion`.
+
 ## 5. US4 — Espera en destino
 
 | Paso | Esperado |

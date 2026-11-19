@@ -7,6 +7,7 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.time.LocalDateTime;
@@ -185,7 +186,7 @@ class ViajeProgramadoControllerIntegrationTest {
     }
 
     @Test
-    void detencion_conVehiculoSamsara_despacha_yConOtroDispositivoDevuelve404() throws Exception {
+    void detencion_conVehiculoSamsara_despachaAlEmisorSamsara() throws Exception {
         when(avisoSamsara.detener("281474977000101", "T-1", "COMPLETADO"))
                 .thenReturn(org.springframework.http.ResponseEntity.ok(java.util.Map.of("efecto", "DETENIDA")));
 
@@ -193,7 +194,49 @@ class ViajeProgramadoControllerIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"motivo\": \"COMPLETADO\"}"))
                 .andExpect(status().isOk());
+        org.mockito.Mockito.verify(service, org.mockito.Mockito.never()).detener(any(), any(), any());
+    }
+
+    // Feature 014, Historia 3: la detencion Rinho ya no responde 404.
+    @Test
+    void detencion_conCamionRinho_detieneLaSimulacion() throws Exception {
+        when(service.detener("900001", "T-1", "COMPLETADO"))
+                .thenReturn(new DetencionResultado("T-1", "900001", "DETENIDO", "DETENIDA"));
+
+        mockMvc.perform(post("/api/v1/vehiculos/900001/viajes-simulados/T-1/detencion")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"motivo\": \"COMPLETADO\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.tripCode").value("T-1"))
+                .andExpect(jsonPath("$.dispositivoId").value("900001"))
+                .andExpect(jsonPath("$.estado").value("DETENIDO"))
+                .andExpect(jsonPath("$.efecto").value("DETENIDA"));
+    }
+
+    @Test
+    void detencion_sinCuerpo_seAcepta() throws Exception {
+        when(service.detener("900001", "T-1", null))
+                .thenReturn(new DetencionResultado("T-1", "900001", "DETENIDO", "SIN_SIMULACION_EN_CURSO"));
+
         mockMvc.perform(post("/api/v1/vehiculos/900001/viajes-simulados/T-1/detencion"))
-                .andExpect(status().isNotFound());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.efecto").value("SIN_SIMULACION_EN_CURSO"));
+    }
+
+    @Test
+    void detencion_errores_404_409_502() throws Exception {
+        when(service.detener(eq("12345"), any(), any())).thenThrow(new DispositivoNoSimuladoException("12345"));
+        when(service.detener(eq("900002"), any(), any())).thenThrow(new ViajeDeOtroDispositivoException("T-1", "900002"));
+        when(service.detener(eq("900001"), any(), any())).thenThrow(new SimuladorNoDisponibleException("T-1", "Connection refused"));
+
+        mockMvc.perform(post("/api/v1/vehiculos/12345/viajes-simulados/T-1/detencion"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error").value("dispositivo_no_simulado"));
+        mockMvc.perform(post("/api/v1/vehiculos/900002/viajes-simulados/T-1/detencion"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("viaje_de_otro_dispositivo"));
+        mockMvc.perform(post("/api/v1/vehiculos/900001/viajes-simulados/T-1/detencion"))
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.error").value("simulador_no_disponible"));
     }
 }

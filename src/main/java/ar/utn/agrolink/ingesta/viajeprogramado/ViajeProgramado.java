@@ -24,6 +24,8 @@ public class ViajeProgramado {
     public static final String DISPARADO = "DISPARADO";
     public static final String CANCELADO = "CANCELADO";
     public static final String ERROR = "ERROR";
+    /** Feature 014, Historia 3: el viaje termino o se cancelo en AgroLink y su simulacion se detuvo. */
+    public static final String DETENIDO = "DETENIDO";
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -194,6 +196,29 @@ public class ViajeProgramado {
     public void marcarCancelado() {
         this.estado = CANCELADO;
         tocarActualizadoEn();
+    }
+
+    public boolean estaDisparado() {
+        return DISPARADO.equals(estado);
+    }
+
+    public boolean estaDetenido() {
+        return DETENIDO.equals(estado);
+    }
+
+    public void marcarDetenido() {
+        this.estado = DETENIDO;
+        this.ultimoError = null;
+        tocarActualizadoEn();
+    }
+
+    /**
+     * Fallo al detener: queda DISPARADO (sigue simulando) para que un reintento pueda detenerlo. No
+     * toca {@code actualizadoEn}: en una fila DISPARADO es el momento del arranque, y la detencion
+     * lo usa para saber si otra simulacion del mismo dispositivo la reemplazo.
+     */
+    public void registrarFalloDetencion(String detalle) {
+        this.ultimoError = detalle;
     }
 
     public void marcarError(String detalle) {
