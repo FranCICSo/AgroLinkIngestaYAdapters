@@ -146,6 +146,22 @@ reemplazado/desconocido → `SIN_SIMULACION_EN_CURSO`; tombstone bloquea inicio 
 
 ---
 
+## Phase 5b: User Story 3 sobre el modo programado (implementado 2026-11-17, research.md D-14)
+
+Reemplaza T039–T048 mientras no existan las Historias 1 y 2. Rama `feature/detener-simulacion-rinho`.
+
+- [X] T039b [P] [US3] `simulador-viajes/src/db/viajeRepository.js`: `finalizarViajesEnCurso` devuelve los ids finalizados; `existeCamion`. Test en `simulador-viajes/test/db/viajeRepository.test.js`
+- [X] T040b [P] [US3] `simulador-viajes/src/db/flotaRepository.js`: `finalizarYCrearVuelta` no crea la vuelta si el viaje ya no está `en_curso` (devuelve `null`); `simulador-viajes/src/index.js` lo maneja. Tests en `simulador-viajes/test/db/flotaRepository.test.js`
+- [X] T041b [US3] `simulador-viajes/src/http/detencionHandler.js` (`POST /camiones/{camionId}/detencion`) y su ruteo en `simulador-viajes/src/http/rutaHttpServer.js`. Tests en `simulador-viajes/test/http/detencionHandler.test.js`
+- [X] T042b [P] [US3] Migración `deploy/migrations/012_add_estado_detenido_viaje_programado.sql` (`DETENIDO` en el `CHECK`), validada dos veces en un Postgres descartable
+- [X] T043b [US3] `viajeprogramado/ViajeProgramado.java` (`DETENIDO`, `marcarDetenido`, `registrarFalloDetencion`), `viajeprogramado/ViajeProgramadoRepository.java` (`existsByIotDeviceIdAndEstadoAndActualizadoEnAfter`), `viajeprogramado/DetencionResultado.java`, `viajeprogramado/ViajeDeOtroDispositivoException.java`, `viajeprogramado/SimuladorNoDisponibleException.java`
+- [X] T044b [US3] `viajeprogramado/SimuladorViajesClient.java`: `detener(iotDeviceId, tripCode, motivo)` sin propagar `RestClientException` (`404` del simulador = sin viaje). Tests en `viajeprogramado-test/SimuladorViajesClientTest.java`
+- [X] T045b [US3] `viajeprogramado/ViajeProgramadoService.java`: `detener` según la tabla de D-14. Tests en `viajeprogramado-test/ViajeProgramadoDetencionTest.java`
+- [X] T046b [US3] `viajeprogramado/ViajeProgramadoController.java`: detención Rinho (ya no `404`), `409 viaje_de_otro_dispositivo` y `502 simulador_no_disponible`. Tests en `viajeprogramado-test/ViajeProgramadoControllerIntegrationTest.java`
+- [ ] T047b [US3] Verificación de punta a punta (quickstart.md §4b) con el stack levantado
+
+---
+
 ## Phase 6: User Story 4 - El camión espera en destino hasta que el viaje se cierra (Priority: P2)
 
 **Goal**: los viajes avisados quedan estacionados en el destino emitiendo velocidad 0 (y BLE)

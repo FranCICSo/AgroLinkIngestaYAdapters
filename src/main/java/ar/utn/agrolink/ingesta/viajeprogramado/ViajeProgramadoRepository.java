@@ -22,4 +22,10 @@ public interface ViajeProgramadoRepository extends JpaRepository<ViajeProgramado
     // ya llego. Reutiliza el indice parcial viaje_programado_pendiente_idx.
     List<ViajeProgramado> findByEstadoAndEstimatedStartDateTimeLessThanEqual(
             String estado, LocalDateTime hasta);
+
+    // Feature 014, Historia 3: el simulador conoce el camion, no el tripCode. Una simulacion
+    // DISPARADO fue reemplazada si el mismo dispositivo arranco otra despues (actualizadoEn de una
+    // fila DISPARADO es el momento del arranque): detener la vieja no debe frenar la nueva (FR-013).
+    boolean existsByIotDeviceIdAndEstadoAndActualizadoEnAfter(
+            String iotDeviceId, String estado, LocalDateTime actualizadoEn);
 }

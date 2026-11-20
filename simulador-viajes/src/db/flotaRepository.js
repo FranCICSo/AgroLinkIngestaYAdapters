@@ -109,11 +109,21 @@ export async function actualizarProgresoViaje(pool, viajeId, { indiceActual, odo
 //
 // Feature 016 (FR-008): el viaje de vuelta NO copia la falla de motor del anterior; trae su propio
 // sorteo (`fallaMotor`, resultado de sortearFallaMotor o null).
+//
+// Feature 014 (Historia 3): si el viaje ya no esta 'en_curso' (se detuvo por HTTP mientras este
+// ciclo lo procesaba), no crea la vuelta y devuelve null, para no revivir una simulacion detenida.
 export async function finalizarYCrearVuelta(pool, viaje, fallaMotor = null) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    await client.query(`UPDATE simulador.viaje SET estado = 'finalizado' WHERE id = $1`, [viaje.id]);
+    const finalizado = await client.query(
+      `UPDATE simulador.viaje SET estado = 'finalizado' WHERE id = $1 AND estado = 'en_curso'`,
+      [viaje.id],
+    );
+    if (finalizado.rowCount === 0) {
+      await client.query('ROLLBACK');
+      return null;
+    }
 
     const nuevoSentido = viaje.sentido === 'ida' ? 'vuelta' : 'ida';
     const { rows } = await client.query(

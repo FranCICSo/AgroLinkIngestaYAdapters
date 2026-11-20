@@ -4,11 +4,15 @@
 
 // Un camion tiene a lo sumo un viaje 'en_curso' a la vez (invariante de aplicacion, ver
 // deploy/db/03-schema-simulador.sql) - antes de abrir uno nuevo, se cierran los que haya.
+// Tambien detiene la simulacion de un camion (feature 014, Historia 3): sin viaje en curso, el
+// ciclo deja de emitir y no crea la vuelta. Devuelve los ids finalizados (vacio si no habia).
 export async function finalizarViajesEnCurso(pool, camionId) {
-  await pool.query(
-    `UPDATE simulador.viaje SET estado = 'finalizado' WHERE camion_id = $1 AND estado = 'en_curso'`,
+  const { rows } = await pool.query(
+    `UPDATE simulador.viaje SET estado = 'finalizado' WHERE camion_id = $1 AND estado = 'en_curso'
+     RETURNING id`,
     [camionId],
   );
+  return rows.map((r) => r.id);
 }
 
 export async function obtenerUltimoOdometro(pool, camionId) {
@@ -112,4 +116,9 @@ export async function marcarFallaMotorDesactivada(pool, viajeId, ahora = new Dat
       WHERE id = $1 AND falla_motor_desactivada_en IS NULL`,
     [viajeId, ahora],
   );
+}
+
+export async function existeCamion(pool, camionId) {
+  const { rows } = await pool.query('SELECT 1 FROM simulador.camion WHERE id = $1', [camionId]);
+  return rows.length > 0;
 }

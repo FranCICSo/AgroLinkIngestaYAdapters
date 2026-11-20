@@ -74,6 +74,21 @@ cualquier estado, otro dispositivo------------------------> sin cambio (409 viaj
 
 `DETENIDO` es terminal. Tabla completa de decisión y respuestas: research.md D-03.
 
+**Implementado (2026-11-17, research.md D-14)**: sin las Historias 1 y 2, los estados siguen
+siendo los de 013 (`DISPARADO` en lugar de `ARRANCADO`) más `DETENIDO`, que agrega la migración
+`012_add_estado_detenido_viaje_programado.sql` al `CHECK`:
+
+```
+PENDIENTE | CANCELADO --detención-------------------------------> DETENIDO
+DISPARADO --detención OK----------------------------------------> DETENIDO
+DISPARADO --detención, simulador falla--------------------------> DISPARADO (ultimo_error, 502)
+ERROR --detención (best-effort, falle o no el simulador)--------> DETENIDO
+DISPARADO | ERROR reemplazada por un DISPARADO posterior --det.--> DETENIDO (sin llamar al simulador)
+DETENIDO --detención--------------------------------------------> DETENIDO (200 SIN_SIMULACION_EN_CURSO)
+DETENIDO --inicio-----------------------------------------------> DETENIDO (409 viaje_no_modificable)
+(sin fila) --detención------------------------------------------> (sin fila, sin tombstone)
+```
+
 ---
 
 ## 2. `simulador.ruta` — Ruta simulada

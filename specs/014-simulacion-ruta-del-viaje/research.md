@@ -263,3 +263,57 @@ guarda estado, `trazado`, `velocidades`, `motivo_detencion`, `detenido_en` y `ul
 por tramo (FR-008a, cambio pedido). `src/cli/crearRuta.js` no cambia de interfaz y conserva la
 vuelta automática (FR-015, SC-005 solo aplica a viajes avisados). La respuesta `201` agrega
 `trazado` y `velocidades` (campos nuevos, retrocompatibles).
+
+## D-14 — Historia 3 implementada sobre el modo programado (2026-11-17)
+
+**Contexto**: las Historias 1, 2 y 4 (y con ellas D-01, D-02, D-06, D-07 y D-10) no se
+implementaron. El arranque sigue siendo el de 013: `ingesta.viaje_programado` con estados
+`PENDIENTE` / `DISPARADO` / `CANCELADO` / `ERROR`, y `simulador.viaje` sin `trip_code`. Mientras
+tanto, un camión Rinho seguía en ida y vuelta indefinida después de cerrarse el viaje en AgroLink.
+
+**Decisión**:
+
+- **Simulador**: `POST /camiones/{camionId}/detencion` (no `POST /viajes/detener`). Finaliza el
+  viaje `en_curso` del camión con el `finalizarViajesEnCurso` existente (ahora devuelve los ids) y
+  no crea la vuelta. `finalizarYCrearVuelta` solo crea la vuelta si el `UPDATE` encontró el viaje
+  todavía `en_curso`: si una detención llega mientras el ciclo completa la ruta, no la revive.
+- **Ingesta**: la correlación `tripCode` ↔ simulación vive en `viaje_programado`. Tabla de D-03
+  con estos cambios:
+
+| Fila para `tripCode` | Acción | Respuesta |
+|---|---|---|
+| otro dispositivo | nada | `409 viaje_de_otro_dispositivo` |
+| `DISPARADO`, sin arranque posterior del mismo dispositivo | detiene el camión en el simulador | ok → `DETENIDO`, `200` con `DETENIDA` o `SIN_SIMULACION_EN_CURSO`; fallo → sigue `DISPARADO` con `ultimo_error`, `502` |
+| `ERROR`, sin arranque posterior | detención best-effort | `DETENIDO`, `200`; si el simulador falla, `SIN_SIMULACION_EN_CURSO` + `WARN` |
+| `DISPARADO` / `ERROR` con un `DISPARADO` posterior del mismo dispositivo | no llama al simulador (FR-013) | `DETENIDO`, `200 SIN_SIMULACION_EN_CURSO` |
+| `PENDIENTE` / `CANCELADO` | no llama al simulador; el poller ya no dispara la fila | `DETENIDO`, `200 SIN_SIMULACION_EN_CURSO` |
+| `DETENIDO` | nada | `200 SIN_SIMULACION_EN_CURSO` |
+| ninguna | nada, **sin tombstone** | `200 SIN_SIMULACION_EN_CURSO` |
+
+- "Arranque posterior" = otra fila del mismo dispositivo en `DISPARADO` con `actualizado_en`
+  mayor. En una fila `DISPARADO`, `actualizado_en` es el momento del arranque: un fallo de
+  detención guarda `ultimo_error` sin moverlo.
+- **Migración `012_add_estado_detenido_viaje_programado.sql`**: agrega `DETENIDO` al `CHECK` de
+  `estado`.
+- `DETENIDO` rechaza un inicio tardío porque `programar` solo acepta filas `PENDIENTE`
+  (`409 viaje_no_modificable`).
+
+**Rationale**: reutiliza el registro que ya existe y evita una columna nueva en `simulador.viaje`
+que el diseño de la Historia 1 iba a agregar igual. Cuando se implementen las Historias 1 y 2,
+D-06 / D-07 pueden reemplazar la detención por camión por una acotada al `trip_code`.
+
+**Alternativas descartadas**:
+
+- `trip_code` en `simulador.viaje` ahora: obliga a cambiar `POST /rutas` y el arranque, es decir,
+  parte de la Historia 1.
+- Tombstone para un `tripCode` desconocido: la tabla exige `estimated_start_date_time`,
+  coordenadas y `nombre_ruta` `NOT NULL`. Relajarlo cambia el esquema de 013 por un caso que
+  AgroLinkBackend no produce, porque nunca manda la detención de un viaje que no inició (contrato
+  §3).
+
+**Limitaciones aceptadas**:
+
+- Si un camión simulado arrancó un viaje fuera de ingesta (CLI `crear-ruta` o `POST /rutas`
+  directo), la detención de su último viaje de ingesta también lo detiene: el simulador solo
+  conoce el camión.
+- Entre el aviso y el ciclo siguiente puede salir una trama más (≤ `SIMULADOR_CICLO_MS`, SC-004).

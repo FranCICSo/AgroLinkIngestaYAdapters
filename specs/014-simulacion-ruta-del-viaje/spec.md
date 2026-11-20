@@ -4,7 +4,9 @@
 
 **Created**: 2026-10-18
 
-**Status**: Draft
+**Status**: Draft. **Historia 3 implementada** el 2026-11-17 en `feature/detener-simulacion-rinho`,
+adaptada al modo programado de 013 (que sigue vigente porque las Historias 1, 2 y 4 no se
+implementaron). Diferencias con el diseño original: research.md D-14.
 
 **Supersedes**: el modo programado de `specs/013-autostart-simulacion-viaje` (espera hasta el
 horario planificado, reprogramación y cancelación de planificaciones pendientes). Se mantienen la
@@ -38,6 +40,15 @@ completarse el viaje, AgroLinkBackend pide detener la simulación. Reemplaza el 
   único tope de 80 km/h para todos los tramos, y la velocidad urbana surge de la velocidad típica
   baja que el ruteo ya informa para calles urbanas. El tope urbano estricto de 60 km/h deja de ser
   un criterio verificable para rutas con velocidades de ruteo.
+
+### Session 2026-11-17
+
+- Q: ¿Se implementa la detención sin las Historias 1 y 2 (arranque inmediato con `trip_code` en el
+  simulador)? → A: Sí, solo la Historia 3, sobre el modo programado actual. Motivo: un camión Rinho
+  seguía simulándose (ida y vuelta indefinida) después de completarse o cancelarse el viaje en
+  AgroLink, y con el sorteo de sobrecalentamiento de la feature 016 abría alertas de motor "sin
+  viaje en curso". El simulador sigue sin conocer el `tripCode`: `agrolink-ingesta` lo resuelve con
+  `ingesta.viaje_programado` y le pide al simulador detener el camión (research.md D-14).
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -131,6 +142,14 @@ verificar que deja de avanzar y de emitir telemetría de ese viaje dentro del si
    no se toca.
 4. **Given** un aviso de detención con un código de viaje asociado a otro dispositivo, **When**
    llega, **Then** no se detiene la simulación del otro dispositivo.
+5. **Given** un camión cuya simulación se detuvo, **When** pasa el ciclo siguiente, **Then** no
+   emite más tramas ni genera el viaje de vuelta automático, aunque el ciclo estuviera
+   procesándolo en el momento de la detención.
+
+**Implementación (2026-11-17)**: `agrolink-ingesta` atiende la detención Rinho (antes respondía
+`404`) y llama a `POST /camiones/{camionId}/detencion` de `simulador-viajes`
+(contracts/simulador-viajes-http.md §2). El escenario 3 se resuelve en `agrolink-ingesta`: si el
+mismo dispositivo arrancó otra simulación después, no se llama al simulador (research.md D-14).
 
 ---
 
@@ -167,7 +186,10 @@ detenido en el destino hasta enviar la detención.
   desplegar esta versión no se disparan más; se marcan como canceladas, con registro.
 - **Detención antes que inicio**: los avisos pueden llegar en distinto orden; una detención para
   un viaje sin simulación se acepta sin efecto, y un inicio posterior para ese mismo viaje ya
-  detenido se rechaza como no modificable para no revivir un viaje cerrado.
+  detenido se rechaza como no modificable para no revivir un viaje cerrado. **Implementado en
+  parte** (D-14): se rechaza el inicio tardío de un viaje que tenía planificación (pendiente,
+  arrancada, en error o cancelada). Para un `tripCode` sin ninguna fila no se guarda tombstone,
+  porque la tabla exige horario y coordenadas que la detención no trae.
 - **Trazado muy largo**: viajes de larga distancia producen trazados con miles de puntos; deben
   aceptarse sin rechazo por tamaño dentro de un límite razonable documentado en el plan.
 - **Reinicio del servicio simulador con un camión esperando en destino**: al retomar, el camión

@@ -104,6 +104,92 @@ public class ViajeProgramadoService {
     }
 
     /**
+     * Detencion de la simulacion Rinho de un viaje que se completo o cancelo en AgroLink (feature
+     * 014-simulacion-ruta-del-viaje, Historia 3, FR-011 a FR-013, FR-018; contrato 026 §3; tabla
+     * de research.md D-03, con las adaptaciones de D-14).
+     *
+     * <ul>
+     *   <li>tripCode desconocido: {@code SIN_SIMULACION_EN_CURSO}, sin tombstone (D-14).</li>
+     *   <li>PENDIENTE o CANCELADO: DETENIDO, sin tocar el simulador (el poller ya no la dispara).</li>
+     *   <li>DISPARADO vigente: se detiene en simulador-viajes y queda DETENIDO; si el simulador
+     *       falla, sigue DISPARADO con {@code ultimoError} y se responde 502.</li>
+     *   <li>ERROR: detencion best-effort (un timeout pudo haber arrancado igual); si el simulador
+     *       falla, DETENIDO + WARN y {@code SIN_SIMULACION_EN_CURSO}.</li>
+     *   <li>DISPARADO o ERROR reemplazada por un arranque posterior del mismo dispositivo: DETENIDO
+     *       sin tocar el simulador, que ya simula el viaje nuevo (FR-013).</li>
+     *   <li>DETENIDO: nada (idempotente).</li>
+     * </ul>
+     */
+    @Transactional(noRollbackFor = SimuladorNoDisponibleException.class)
+    public DetencionResultado detener(String iotDeviceId, String tripCode, String motivo) {
+        if (!DispositivosSimuladosConocidos.esSimulado(iotDeviceId)) {
+            throw new DispositivoNoSimuladoException(iotDeviceId);
+        }
+        ViajeProgramado viaje = repository.findByTripCode(tripCode).orElse(null);
+        if (viaje == null) {
+            log.info("Detencion de un viaje sin simulacion registrada: tripCode={} iotDeviceId={} motivo={}",
+                    tripCode, iotDeviceId, motivo);
+            return sinSimulacion(tripCode, iotDeviceId);
+        }
+        if (!viaje.getIotDeviceId().equals(iotDeviceId)) {
+            throw new ViajeDeOtroDispositivoException(tripCode, iotDeviceId);
+        }
+        if (viaje.estaDetenido()) {
+            return sinSimulacion(tripCode, iotDeviceId);
+        }
+        if (!viaje.estaDisparado() && !ViajeProgramado.ERROR.equals(viaje.getEstado())) {
+            // PENDIENTE o CANCELADO: nunca arranco.
+            detenida(viaje, tripCode, iotDeviceId, motivo, "sin simulacion arrancada");
+            return sinSimulacion(tripCode, iotDeviceId);
+        }
+        if (fueReemplazada(viaje)) {
+            detenida(viaje, tripCode, iotDeviceId, motivo, "reemplazada por un viaje mas nuevo");
+            return sinSimulacion(tripCode, iotDeviceId);
+        }
+
+        SimuladorViajesClient.DetencionSimulador resultado = simuladorViajesClient.detener(iotDeviceId, tripCode, motivo);
+        if (resultado.resultado() == SimuladorViajesClient.Detencion.FALLO) {
+            if (viaje.estaDisparado()) {
+                viaje.registrarFalloDetencion("detencion: " + resultado.detalle());
+                repository.save(viaje);
+                log.warn("No se pudo detener la simulacion: tripCode={} iotDeviceId={} motivo={} detalle={}",
+                        tripCode, iotDeviceId, motivo, resultado.detalle());
+                throw new SimuladorNoDisponibleException(tripCode, resultado.detalle());
+            }
+            log.warn("Detencion best-effort de un viaje en ERROR sin respuesta del simulador: tripCode={} iotDeviceId={} detalle={}",
+                    tripCode, iotDeviceId, resultado.detalle());
+            detenida(viaje, tripCode, iotDeviceId, motivo, "ERROR, simulador sin respuesta");
+            return sinSimulacion(tripCode, iotDeviceId);
+        }
+        String efecto = resultado.resultado() == SimuladorViajesClient.Detencion.DETENIDA
+                ? DetencionResultado.DETENIDA
+                : DetencionResultado.SIN_SIMULACION_EN_CURSO;
+        detenida(viaje, tripCode, iotDeviceId, motivo, efecto);
+        return DetencionResultado.de(tripCode, iotDeviceId, efecto);
+    }
+
+    /**
+     * El simulador conoce el camion, no el tripCode: si el mismo dispositivo arranco otra simulacion
+     * despues que esta, detener "el camion" frenaria la nueva. {@code actualizadoEn} de una fila
+     * DISPARADO es el momento del arranque.
+     */
+    private boolean fueReemplazada(ViajeProgramado viaje) {
+        return repository.existsByIotDeviceIdAndEstadoAndActualizadoEnAfter(
+                viaje.getIotDeviceId(), ViajeProgramado.DISPARADO, viaje.getActualizadoEn());
+    }
+
+    private void detenida(ViajeProgramado viaje, String tripCode, String iotDeviceId, String motivo, String detalle) {
+        viaje.marcarDetenido();
+        repository.save(viaje);
+        log.info("Simulacion detenida: tripCode={} iotDeviceId={} motivo={} resultado={}",
+                tripCode, iotDeviceId, motivo, detalle);
+    }
+
+    private static DetencionResultado sinSimulacion(String tripCode, String iotDeviceId) {
+        return DetencionResultado.de(tripCode, iotDeviceId, DetencionResultado.SIN_SIMULACION_EN_CURSO);
+    }
+
+    /**
      * Scopea SIEMPRE la búsqueda por {@code iotDeviceId} además de {@code tripCode}: un
      * {dispositivoId} del path que no coincide con el dueño real del viaje nunca debe poder
      * reprogramarlo/cancelarlo (IDOR) — se trata igual que "no existe".

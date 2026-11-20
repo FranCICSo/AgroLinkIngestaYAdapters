@@ -10,14 +10,15 @@ function fakePool(queryImpl) {
   return { query: queryImpl };
 }
 
-test('finalizarViajesEnCurso actualiza solo los viajes en_curso del camion dado', async () => {
+test('finalizarViajesEnCurso actualiza solo los viajes en_curso del camion dado y devuelve sus ids', async () => {
   const pool = fakePool(async (sql, params) => {
     assert.match(sql, /UPDATE simulador\.viaje SET estado = 'finalizado'/);
+    assert.match(sql, /estado = 'en_curso'/);
     assert.deepEqual(params, ['900005']);
-    return { rows: [] };
+    return { rows: [{ id: 33 }] };
   });
 
-  await finalizarViajesEnCurso(pool, '900005');
+  assert.deepEqual(await finalizarViajesEnCurso(pool, '900005'), [33]);
 });
 
 test('obtenerUltimoOdometro devuelve el odometro del viaje mas reciente', async () => {

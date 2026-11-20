@@ -139,6 +139,15 @@ viaje más nuevo del mismo dispositivo ni la de otro dispositivo.
 
 ---
 
+**Estado de implementación en este repo (2026-11-17, research.md D-14)**: §3 está implementado
+para dispositivos Rinho (antes respondía `404`). Única diferencia con la tabla de arriba: con un
+`tripCode` sin ninguna fila en `ingesta.viaje_programado` se responde `200
+SIN_SIMULACION_EN_CURSO` **sin** dejar registrado el `tripCode`, así que un inicio posterior de ese
+mismo `tripCode` no se rechaza. AgroLinkBackend no produce ese orden (solo detiene viajes que
+iniciaron).
+
+---
+
 ## 4. Semántica de la ruta y de las velocidades (regla compartida)
 
 Esta sección es la regla única mapa/simulador (spec 026 FR-001a/FR-001b, Clarifications; receptor

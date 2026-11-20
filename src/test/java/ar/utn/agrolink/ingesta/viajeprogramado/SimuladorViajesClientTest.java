@@ -130,4 +130,60 @@ class SimuladorViajesClientTest {
         assertThat(resultado.exito()).isFalse();
         assertThat(resultado.detalleError()).isNotBlank();
     }
+
+    // Feature 014, Historia 3: detencion de la simulacion Rinho.
+
+    @Test
+    void detener_conViajeEnCurso_postAlCamion_yDevuelveDetenida() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo("/camiones/900001/detencion")).andExpect(method(HttpMethod.POST))
+                .andExpect(jsonPath("$.tripCode").value("V1"))
+                .andExpect(jsonPath("$.motivo").value("COMPLETADO"))
+                .andRespond(withStatus(HttpStatus.OK)
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .body("{\"camionId\":\"900001\",\"viajesFinalizados\":[41],\"efecto\":\"DETENIDA\"}"));
+
+        var r = new SimuladorViajesClient(builder.build()).detener("900001", "V1", "COMPLETADO");
+
+        assertThat(r.resultado()).isEqualTo(SimuladorViajesClient.Detencion.DETENIDA);
+        server.verify();
+    }
+
+    @Test
+    void detener_sinViajeEnCurso_devuelveSinViaje() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo("/camiones/900001/detencion"))
+                .andRespond(withStatus(HttpStatus.OK)
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .body("{\"camionId\":\"900001\",\"viajesFinalizados\":[],\"efecto\":\"SIN_VIAJE_EN_CURSO\"}"));
+
+        var r = new SimuladorViajesClient(builder.build()).detener("900001", "V1", null);
+
+        assertThat(r.resultado()).isEqualTo(SimuladorViajesClient.Detencion.SIN_VIAJE_EN_CURSO);
+    }
+
+    @Test
+    void detener_camionNoEncontrado_cuentaComoSinViaje() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo("/camiones/900001/detencion")).andRespond(withStatus(HttpStatus.NOT_FOUND));
+
+        var r = new SimuladorViajesClient(builder.build()).detener("900001", "V1", null);
+
+        assertThat(r.resultado()).isEqualTo(SimuladorViajesClient.Detencion.SIN_VIAJE_EN_CURSO);
+    }
+
+    @Test
+    void detener_errorDelSimulador_devuelveFalloSinPropagar() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo("/camiones/900001/detencion")).andRespond(withServerError());
+
+        var r = new SimuladorViajesClient(builder.build()).detener("900001", "V1", null);
+
+        assertThat(r.resultado()).isEqualTo(SimuladorViajesClient.Detencion.FALLO);
+        assertThat(r.detalle()).isNotBlank();
+    }
 }

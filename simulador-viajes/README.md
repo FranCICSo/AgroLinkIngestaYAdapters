@@ -219,11 +219,30 @@ los logs aparece así:
 
 El simulador genera automáticamente el viaje de vuelta sobre la misma ruta, en sentido
 inverso (mismas paradas), y sigue emitiendo sin intervención manual — alternando ida/vuelta
-indefinidamente. Se ve en los logs como:
+hasta que el viaje se completa o cancela en AgroLink (ver la sección siguiente). Se ve en los logs como:
 
 ```json
 {"msg":"Viaje completado: generado el viaje de vuelta automatico","camionId":"900001","nuevoSentido":"vuelta"}
 ```
+
+### Detener la simulación de un camión (feature 014, Historia 3)
+
+Cuando un viaje se completa o se cancela en AgroLink, AgroLinkBackend avisa a `agrolink-ingesta`,
+y ésta llama a:
+
+```sh
+curl -s -X POST localhost:8090/camiones/900001/detencion \
+  -H 'Content-Type: application/json' -d '{"tripCode":"VIAJE-2026-0955","motivo":"COMPLETADO"}'
+# {"camionId":"900001","viajesFinalizados":[42],"efecto":"DETENIDA"}
+```
+
+Finaliza el viaje en curso del camión **sin** crear el de vuelta, así que el camión deja de emitir
+desde el ciclo siguiente. Repetirlo responde `SIN_VIAJE_EN_CURSO`. El cuerpo es opcional y solo
+va al log. Con el simulador en Docker, igual que `falla-motor`:
+`docker compose exec simulador-viajes curl -s -X POST localhost:8090/camiones/900001/detencion`.
+
+Un camión con un viaje creado a mano (CLI `crear-ruta` o `POST /rutas` directo) sigue en ida y
+vuelta hasta que se lo detiene así.
 
 ## Variables de entorno
 

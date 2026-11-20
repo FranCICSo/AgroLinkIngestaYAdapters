@@ -98,6 +98,13 @@ async function procesarCamion(pool, udpClient, entry) {
     // Feature 016 (FR-008): la vuelta no hereda la falla de motor; tiene su propio sorteo.
     const fallaMotorVuelta = sortearFallaMotorConfigurado(ruta.puntos.length);
     const nuevoViaje = await finalizarYCrearVuelta(pool, viaje, fallaMotorVuelta);
+    if (!nuevoViaje) {
+      log.info('Viaje detenido mientras completaba la ruta: sin viaje de vuelta', {
+        camionId: camion.id,
+        viajeId: viaje.id,
+      });
+      return;
+    }
     log.info('Viaje completado: generado el viaje de vuelta automatico', {
       camionId: camion.id,
       viajeAnteriorId: viaje.id,
