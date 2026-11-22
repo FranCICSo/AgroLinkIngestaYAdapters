@@ -106,6 +106,28 @@ export function loadMotorConfig(env = process.env) {
   return config;
 }
 
+// Feature 019-falla-carga-refrigerada-http (data-model.md §4): desvio termico manual de la carga.
+// MARGEN_C son los grados por fuera del umbral del viaje hacia los que va la temperatura: con el
+// ruido de +-0,3 C, por debajo de 2,5 no garantiza los 2 C fuera del umbral que pide FR-003.
+// SIN_UMBRALES_C es la distancia al setpoint cuando el camion no tiene umbrales (FR-015).
+export const MARGEN_MINIMO_DESVIO_CARGA_C = 2.5;
+
+export function loadCargaDesvioConfig(env = process.env) {
+  const config = {
+    margenC: readNumber('CARGA_DESVIO_MARGEN_C', env.CARGA_DESVIO_MARGEN_C, 4),
+    sinUmbralesC: readNumber('CARGA_DESVIO_SIN_UMBRALES_C', env.CARGA_DESVIO_SIN_UMBRALES_C, 8),
+  };
+  if (config.margenC < MARGEN_MINIMO_DESVIO_CARGA_C) {
+    throw new Error(
+      `CARGA_DESVIO_MARGEN_C debe ser >= ${MARGEN_MINIMO_DESVIO_CARGA_C}, recibido: ${config.margenC}`,
+    );
+  }
+  if (config.sinUmbralesC <= 0) {
+    throw new Error(`CARGA_DESVIO_SIN_UMBRALES_C debe ser > 0, recibido: ${config.sinUmbralesC}`);
+  }
+  return config;
+}
+
 // Feature 016, ampliacion (research.md D-15): nivel del tanque de combustible. Baja PCT_POR_KM
 // por km recorrido y vuelve a 100 % en la trama siguiente a la que quedo debajo de
 // RECARGA_DEBAJO_PCT.
@@ -172,6 +194,7 @@ export function loadConfig(env = process.env) {
     puertoHttp: readInt('PUERTO_HTTP', env.PUERTO_HTTP, undefined),
     samsara: loadSamsaraConfig(env),
     motor: loadMotorConfig(env),
+    cargaDesvio: loadCargaDesvioConfig(env),
     combustible: loadCombustibleConfig(env),
   };
 }

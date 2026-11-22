@@ -69,6 +69,17 @@ export function mapFallaMotor(row) {
   };
 }
 
+// --- Falla de carga (feature 019, data-model.md §1): desvio termico manual y fallas por SQL ---
+
+export function mapFallaCarga(row) {
+  return {
+    fallaTipo: row.falla_tipo ?? null,
+    fallaCargaSentido: row.falla_carga_sentido ?? null,
+    fallaCargaActivadaEn: row.falla_carga_activada_en ? new Date(row.falla_carga_activada_en) : null,
+    fallaCargaDesactivadaEn: row.falla_carga_desactivada_en ? new Date(row.falla_carga_desactivada_en) : null,
+  };
+}
+
 // Camion (exista o no) y su viaje en curso. Distingue "no existe" (404) de "sin viaje" (409).
 export async function obtenerCamionYViajeEnCurso(pool, camionId) {
   const { rows } = await pool.query(
@@ -121,4 +132,58 @@ export async function marcarFallaMotorDesactivada(pool, viajeId, ahora = new Dat
 export async function existeCamion(pool, camionId) {
   const { rows } = await pool.query('SELECT 1 FROM simulador.camion WHERE id = $1', [camionId]);
   return rows.length > 0;
+}
+
+// Camion (exista o no) con su carga y rango termico, y su viaje en curso con la falla de carga
+// vigente (feature 019). Distingue "no existe" (404) de "sin viaje" (409), igual que
+// obtenerCamionYViajeEnCurso.
+export async function obtenerCamionConCargaYViajeEnCurso(pool, camionId) {
+  const { rows } = await pool.query(
+    `SELECT c.id AS camion_id, c.activo, c.tipo_carga, c.setpoint_temp_c, c.umbral_min_c, c.umbral_max_c,
+            v.id AS viaje_id, v.falla_tipo, v.falla_carga_sentido,
+            v.falla_carga_activada_en, v.falla_carga_desactivada_en
+       FROM simulador.camion c
+       LEFT JOIN simulador.viaje v ON v.camion_id = c.id AND v.estado = 'en_curso'
+      WHERE c.id = $1
+      ORDER BY v.id DESC
+      LIMIT 1`,
+    [camionId],
+  );
+  const row = rows[0];
+  if (!row) return { camion: null, viaje: null };
+  const numero = (v) => (v == null ? null : Number(v));
+  return {
+    camion: {
+      id: row.camion_id,
+      activo: row.activo,
+      tipoCarga: row.tipo_carga,
+      setpointTempC: numero(row.setpoint_temp_c),
+      umbralMinC: numero(row.umbral_min_c),
+      umbralMaxC: numero(row.umbral_max_c),
+    },
+    viaje: row.viaje_id == null ? null : { id: row.viaje_id, ...mapFallaCarga(row) },
+  };
+}
+
+// Activa el desvio termico manual: pisa cualquier falla de carga previa del viaje (FR-018). Con
+// `estado = 'en_curso'`, un viaje que termino entre la lectura y la escritura no se revive.
+export async function activarDesvioTermico(pool, viajeId, sentido, ahora = new Date()) {
+  await pool.query(
+    `UPDATE simulador.viaje
+        SET falla_tipo = 'desvio_termico', falla_indice_disparo = NULL,
+            falla_carga_sentido = $2, falla_carga_activada_en = $3, falla_carga_desactivada_en = NULL
+      WHERE id = $1 AND estado = 'en_curso'`,
+    [viajeId, sentido, ahora],
+  );
+}
+
+// Cierra la falla de carga vigente del viaje, sea el desvio manual o una cargada por SQL (FR-018).
+// Conserva sentido y hora de activacion para el GET; la hora de cierre queda registrada.
+export async function cerrarFallaCarga(pool, viajeId, ahora = new Date()) {
+  await pool.query(
+    `UPDATE simulador.viaje
+        SET falla_tipo = NULL, falla_indice_disparo = NULL, falla_carga_desactivada_en = $2
+      WHERE id = $1 AND estado = 'en_curso'`,
+    [viajeId, ahora],
+  );
 }

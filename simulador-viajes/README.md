@@ -143,7 +143,35 @@ Dentro del ciclo siguiente (≤60 s) el camión nuevo ya está emitiendo tramas.
 
 ### Forzar una falla de carga refrigerada (para demos)
 
-Sobre el viaje `en_curso` de un camión con `tipo_carga = 'refrigerada'`:
+**A mano, sin queries** (feature 019): sobre el viaje `en_curso` de un camión con carga
+refrigerada, el servidor HTTP interno expone `/camiones/{dispositivoId}/falla-carga`. Activarlo
+lleva la temperatura de la carga a 4 °C por fuera del umbral del viaje (`CARGA_DESVIO_MARGEN_C`),
+en 1 o 2 tramas, y la mantiene ahí hasta cerrarlo o hasta que termine el viaje. Cerrarlo la
+devuelve al rango en 1 o 2 tramas.
+
+```sh
+cd deploy
+docker compose exec simulador-viajes curl -s -X POST   localhost:8090/camiones/900002/falla-carga                 # activar, por encima del máximo
+docker compose exec simulador-viajes curl -s -X POST  'localhost:8090/camiones/900002/falla-carga?sentido=abajo'  # activar, por debajo del mínimo
+docker compose exec simulador-viajes curl -s           localhost:8090/camiones/900002/falla-carga                 # estado, rango y última temperatura
+docker compose exec simulador-viajes curl -s -X DELETE localhost:8090/camiones/900002/falla-carga                 # cerrar
+```
+
+- Los umbrales los manda `agrolink-ingesta` al iniciar el viaje. Si el camión no los tiene (por
+  ejemplo, uno dado de alta a mano), el desvío se ubica a `CARGA_DESVIO_SIN_UMBRALES_C` grados del
+  setpoint (8 por defecto).
+- Activar reemplaza una falla cargada por SQL (abajo), y cerrar también cierra esa. Como mucho hay
+  una falla de carga por viaje. Es independiente de la falla de motor.
+- **Cuánto tarda la alerta**: el simulador no crea alertas. AgroLinkBackend abre la alerta térmica
+  cuando todas las lecturas de los últimos 20 minutos quedan fuera del rango, y evalúa cada
+  10 minutos: unos 30 a 35 minutos después de activar. La cierra en la primera evaluación con una
+  lectura dentro del rango, hasta 10 minutos después de cerrar. Para una demo, levantar el backend
+  con `AGROLINK_ALERT_THERMAL_CHECKINTERVALMS=60000` y `AGROLINK_ALERT_THERMAL_TOLERANCEMINUTES=2`.
+
+Respuestas y errores en
+`specs/019-falla-carga-refrigerada-http/contracts/simulador-falla-carga-http.md`.
+
+**Por SQL** (alternativa), sobre el viaje `en_curso` de un camión con `tipo_carga = 'refrigerada'`:
 
 ```sql
 -- Apertura de puerta: dispara al llegar a una parada de esa ruta (el índice debe
@@ -163,7 +191,9 @@ UPDATE simulador.viaje SET falla_tipo = NULL, falla_indice_disparo = NULL
 WHERE camion_id = '900002' AND estado = 'en_curso';
 ```
 
-Como mucho una falla activa por viaje (ver `spec.md`, Edge Cases).
+Como mucho una falla de carga activa por viaje (ver `spec.md`, Edge Cases). La falla de compresor
+sube 0,15 °C por trama sin mirar los umbrales del viaje, así que tarda bastante más en abrir la
+alerta que el `curl` de arriba.
 
 ### Sobrecalentamiento de motor (feature 016)
 
@@ -260,6 +290,7 @@ Ver `deploy/.env.example`. Las relevantes para este proceso:
 | `SAMSARA_*` | ver abajo | Emisor de webhooks Samsara simulado (feature 015) |
 | `MOTOR_*` | ver arriba | Temperatura de motor y sobrecalentamiento (feature 016) |
 | `COMBUSTIBLE_PCT_POR_KM` / `COMBUSTIBLE_RECARGA_DEBAJO_PCT` | `0.05` / `7` | Consumo del tanque por km y umbral de recarga a 100 % (feature 016) |
+| `CARGA_DESVIO_MARGEN_C` / `CARGA_DESVIO_SIN_UMBRALES_C` | `4` / `8` | Desvío térmico manual de la carga: grados por fuera del umbral del viaje (≥ 2,5), y distancia al setpoint si el camión no tiene umbrales (feature 019) |
 
 ## Emisor de webhooks Samsara (feature 015)
 

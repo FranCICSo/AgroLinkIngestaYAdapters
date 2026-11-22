@@ -3,7 +3,8 @@
 // exceso forzado a mano POST /samsara/vehiculos/{vehiculo}/exceso, y la
 // activacion manual del sobrecalentamiento de motor (feature 016): POST|DELETE|GET
 // /camiones/{camionId}/falla-motor, y la detencion de la simulacion Rinho de un camion
-// (feature 014, Historia 3): POST /camiones/{camionId}/detencion.
+// (feature 014, Historia 3): POST /camiones/{camionId}/detencion, y el desvio termico manual de
+// la carga refrigerada (feature 019): POST|DELETE|GET /camiones/{camionId}/falla-carga.
 //
 // `node:http` puro, sin framework (Express/Fastify): el repo no usa ninguno en ningun otro
 // lado (ver plan.md § Technical Context) y el endpoint no necesita mas que parsear un body
@@ -14,6 +15,7 @@ import { log } from '../log.js';
 import { generarRuta } from '../services/routeGenerationService.js';
 import { crearFallaMotorHandler, RUTA_FALLA_MOTOR } from './fallaMotorHandler.js';
 import { crearDetencionHandler, RUTA_DETENCION } from './detencionHandler.js';
+import { crearFallaCargaHandler, RUTA_FALLA_CARGA } from './fallaCargaHandler.js';
 
 const MOTIVO_A_STATUS = {
   validacion: 400,
@@ -93,8 +95,14 @@ async function atenderSamsara(req, res, emisorSamsara) {
   responderJson(res, r.status, r.body);
 }
 
-export function crearRutaHttpServer(pool, osrmBaseUrl, emisorSamsara = null, { fallaMotorHandler, detencionHandler } = {}) {
+export function crearRutaHttpServer(
+  pool,
+  osrmBaseUrl,
+  emisorSamsara = null,
+  { fallaMotorHandler, detencionHandler, fallaCargaHandler, cargaDesvio } = {},
+) {
   const atenderFallaMotor = fallaMotorHandler ?? crearFallaMotorHandler({ pool });
+  const atenderFallaCarga = fallaCargaHandler ?? crearFallaCargaHandler({ pool, config: cargaDesvio });
   const atenderDetencion = detencionHandler ?? crearDetencionHandler({ pool, leerBody: leerBodyJson });
   return createServer(async (req, res) => {
     // Feature 014 (Historia 3): detencion de la simulacion Rinho de un camion.
@@ -112,6 +120,16 @@ export function crearRutaHttpServer(pool, osrmBaseUrl, emisorSamsara = null, { f
         await atenderFallaMotor(req, res, responderJson);
       } catch (err) {
         log.error('Fallo atendiendo /camiones/{id}/falla-motor', { url: req.url, error: err.message });
+        responderJson(res, 500, { error: 'interno', detalle: err.message });
+      }
+      return;
+    }
+    // Feature 019: desvio termico manual de la carga refrigerada.
+    if (RUTA_FALLA_CARGA.test(req.url)) {
+      try {
+        await atenderFallaCarga(req, res, responderJson);
+      } catch (err) {
+        log.error('Fallo atendiendo /camiones/{id}/falla-carga', { url: req.url, error: err.message });
         responderJson(res, 500, { error: 'interno', detalle: err.message });
       }
       return;
@@ -152,8 +170,8 @@ export function crearRutaHttpServer(pool, osrmBaseUrl, emisorSamsara = null, { f
   });
 }
 
-export function iniciarRutaHttpServer(pool, { osrmBaseUrl, puertoHttp, emisorSamsara = null }) {
-  const server = crearRutaHttpServer(pool, osrmBaseUrl, emisorSamsara);
+export function iniciarRutaHttpServer(pool, { osrmBaseUrl, puertoHttp, emisorSamsara = null, cargaDesvio }) {
+  const server = crearRutaHttpServer(pool, osrmBaseUrl, emisorSamsara, { cargaDesvio });
   server.listen(puertoHttp, () => {
     log.info('Servidor HTTP de generacion de rutas escuchando', { puerto: puertoHttp });
   });

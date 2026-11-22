@@ -2,7 +2,8 @@
 
 **Feature**: `011-generar-ruta-simulada` | **Date**: 2026-10-07 | **Actualizado**: 2026-10-10
 (User Story 3, FR-013/FR-014: bloque `camion` opcional; 2026-10-10 (2): `camion.id` admite ids
-no puramente numéricos, p. ej. `tra-demo-004`)
+no puramente numéricos, p. ej. `tra-demo-004`; 2026-11-22: umbrales térmicos y actualización de la
+carga del camión existente, feature 019)
 
 Endpoint HTTP interno del proceso `simulador-viajes` (FR-005). **No publicado al host** en
 `deploy/compose.yaml` (research.md D-04): alcanzable sólo dentro de la red de Docker compose, nunca
@@ -49,9 +50,22 @@ cada campo.
 - Si el camión no existe en `simulador.camion`, se crea con los demás campos (`nombre` default
   `id`, `tipoCarga` default `'seca'`, `odometroInicialKm` default `0`; `setpointTempC`/
   `setpointHumedadPct` opcionales, solo tienen efecto si `tipoCarga='refrigerada'`).
-- Si el camión ya existe, se reutiliza tal cual está (no se pisan sus campos) — solo se cierra
-  su viaje `en_curso` anterior (si tenía uno) y se abre el nuevo sobre esta ruta, continuando
-  desde su último odómetro conocido.
+- Con `tipoCarga='refrigerada'`, `setpointTempC` es obligatorio (±50 °C) y `setpointHumedadPct`
+  opcional (0–100, default 88).
+- Umbrales térmicos opcionales del viaje refrigerado (feature 019, contrato
+  [`simulador-falla-carga-http.md` §5](../../019-falla-carga-refrigerada-http/contracts/simulador-falla-carga-http.md)):
+
+  | Campo | Tipo | Regla |
+  |---|---|---|
+  | `umbralTermicoMinC` | número | Va junto con el máximo, dentro de ±50 y ≤ máximo |
+  | `umbralTermicoMaxC` | número | Igual que el mínimo |
+
+  Si falta uno, está fuera de rango o el mínimo supera al máximo: `400 validacion`. Con carga seca
+  se ignoran. El desvío térmico manual (`/camiones/{id}/falla-carga`) se ubica fuera de ellos.
+- Si el camión ya existe, se reutiliza: se cierra su viaje `en_curso` anterior (si tenía uno) y se
+  abre el nuevo sobre esta ruta, continuando desde su último odómetro conocido. Si el pedido trae
+  `tipoCarga`, se pisan la carga, el setpoint y los umbrales del camión (la carga es del viaje). Sin
+  `tipoCarga` se conservan.
 
 ## Responses
 

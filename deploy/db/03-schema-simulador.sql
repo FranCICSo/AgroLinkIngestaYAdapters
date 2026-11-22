@@ -23,6 +23,10 @@ CREATE TABLE IF NOT EXISTS simulador.camion (
     -- una edicion a mano falle al insertar.
     setpoint_temp_c         NUMERIC(4,1),
     setpoint_humedad_pct    NUMERIC(5,2),
+    -- Umbrales termicos del viaje refrigerado en curso (feature 019, migracion 013). Los manda
+    -- agrolink-ingesta junto con el setpoint; el desvio termico manual se ubica fuera de ellos.
+    umbral_min_c            NUMERIC(4,1),
+    umbral_max_c            NUMERIC(4,1),
     odometro_inicial_km     NUMERIC(10,3)   NOT NULL,
     activo                  BOOLEAN         NOT NULL DEFAULT true
 );
@@ -57,8 +61,13 @@ CREATE TABLE IF NOT EXISTS simulador.viaje (
     estado                  VARCHAR(12)     NOT NULL CHECK (estado IN ('en_curso', 'finalizado')),
     -- Fallas planificadas de carga refrigerada (FR-015/FR-016). Como mucho una por viaje en
     -- esta primera version (spec, Edge Cases).
-    falla_tipo              VARCHAR(20)     CHECK (falla_tipo IN ('apertura_puerta', 'falla_compresor')),
+    -- 'desvio_termico' (feature 019, migracion 013): desvio manual por HTTP, sin indice.
+    falla_tipo              VARCHAR(20)     CONSTRAINT viaje_falla_tipo_check
+                                            CHECK (falla_tipo IN ('apertura_puerta', 'falla_compresor', 'desvio_termico')),
     falla_indice_disparo    INTEGER,
+    falla_carga_sentido         VARCHAR(5)      CHECK (falla_carga_sentido IN ('arriba', 'abajo')),
+    falla_carga_activada_en     TIMESTAMPTZ,
+    falla_carga_desactivada_en  TIMESTAMPTZ,
     -- Sobrecalentamiento de motor (feature 016, migracion 010): independiente de falla_tipo.
     falla_motor_origen          VARCHAR(6)      CHECK (falla_motor_origen IN ('azar', 'manual')),
     falla_motor_indice_disparo  INTEGER,

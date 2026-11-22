@@ -115,7 +115,7 @@ test('camion existente cargado como seca pasa a refrigerada cuando el viaje lo i
 
   const update = pool.llamadas.find((l) => /UPDATE simulador\.camion\s+SET tipo_carga/.test(l.sql));
   assert.ok(update, 'debe actualizar la carga del camion existente');
-  assert.deepEqual(update.params, ['900002', 'refrigerada', 3.5, 90]);
+  assert.deepEqual(update.params, ['900002', 'refrigerada', 3.5, 90, null, null]);
 });
 
 test('camion existente refrigerado vuelve a seca y limpia los setpoints', async () => {
@@ -126,7 +126,7 @@ test('camion existente refrigerado vuelve a seca y limpia los setpoints', async 
   await iniciarViajeParaCamion(pool, { camion: { id: '900002', tipoCarga: 'seca' }, rutaId: 5 });
 
   const update = pool.llamadas.find((l) => /UPDATE simulador\.camion\s+SET tipo_carga/.test(l.sql));
-  assert.deepEqual(update.params, ['900002', 'seca', null, null]);
+  assert.deepEqual(update.params, ['900002', 'seca', null, null, null, null]);
 });
 
 test('sin tipoCarga en el request no toca la carga de un camion existente', async () => {
@@ -138,4 +138,43 @@ test('sin tipoCarga en el request no toca la carga de un camion existente', asyn
 
   const update = pool.llamadas.find((l) => /UPDATE simulador\.camion\s+SET tipo_carga/.test(l.sql));
   assert.equal(update, undefined);
+});
+
+test('alta de camion refrigerado con umbrales: los guarda junto al setpoint', async () => {
+  const pool = fakePool();
+
+  await iniciarViajeParaCamion(pool, {
+    camion: { id: '900007', tipoCarga: 'refrigerada', setpointTempC: 5, umbralTermicoMinC: 2, umbralTermicoMaxC: 8 },
+    rutaId: 7,
+  });
+
+  const insertCamion = pool.llamadas.find((l) => /INSERT INTO simulador\.camion/.test(l.sql));
+  // (..., odometro_inicial_km, umbral_min_c, umbral_max_c)
+  assert.deepEqual(insertCamion.params.slice(6, 8), [2, 8]);
+});
+
+test('camion existente: el viaje refrigerado nuevo actualiza sus umbrales', async () => {
+  const pool = fakePool({
+    camionExistente: { id: '900002', nombre: 'Camion 2', tipo_carga: 'refrigerada', odometro_inicial_km: 0 },
+  });
+
+  await iniciarViajeParaCamion(pool, {
+    camion: { id: '900002', tipoCarga: 'refrigerada', setpointTempC: 4, umbralTermicoMinC: 0, umbralTermicoMaxC: 8 },
+    rutaId: 5,
+  });
+
+  const update = pool.llamadas.find((l) => /UPDATE simulador\.camion\s+SET tipo_carga/.test(l.sql));
+  assert.deepEqual(update.params, ['900002', 'refrigerada', 4, SETPOINT_HUMEDAD_DEFAULT_PCT, 0, 8]);
+});
+
+test('carga seca: los umbrales quedan en null aunque vengan informados', async () => {
+  const pool = fakePool();
+
+  await iniciarViajeParaCamion(pool, {
+    camion: { id: '900008', tipoCarga: 'seca', umbralTermicoMinC: 2, umbralTermicoMaxC: 8 },
+    rutaId: 7,
+  });
+
+  const insertCamion = pool.llamadas.find((l) => /INSERT INTO simulador\.camion/.test(l.sql));
+  assert.deepEqual(insertCamion.params.slice(6, 8), [null, null]);
 });

@@ -37,6 +37,29 @@ function distanciaHaversineMetros(a, b) {
   return 2 * RADIO_TIERRA_METROS * Math.asin(Math.sqrt(Math.min(1, h)));
 }
 
+// Feature 019 (data-model.md §2): umbrales termicos del viaje refrigerado, opcionales pero juntos.
+// El simulador los usa para ubicar el desvio termico manual por fuera del rango.
+function validarUmbrales(camion) {
+  const informado = (v) => v !== undefined && v !== null;
+  const min = camion.umbralTermicoMinC;
+  const max = camion.umbralTermicoMaxC;
+  if (!informado(min) && !informado(max)) return { valido: true };
+  if (!informado(min) || !informado(max)) {
+    return { valido: false, detalle: 'camion.umbralTermicoMinC y camion.umbralTermicoMaxC van juntos' };
+  }
+  const enRango = (v) => Number.isFinite(v) && Math.abs(v) <= SETPOINT_TEMP_MAX_ABS_C;
+  if (!enRango(min) || !enRango(max)) {
+    return {
+      valido: false,
+      detalle: `camion.umbralTermicoMinC y camion.umbralTermicoMaxC deben ser numeros entre -${SETPOINT_TEMP_MAX_ABS_C} y ${SETPOINT_TEMP_MAX_ABS_C}`,
+    };
+  }
+  if (min > max) {
+    return { valido: false, detalle: 'camion.umbralTermicoMinC no puede ser mayor que camion.umbralTermicoMaxC' };
+  }
+  return { valido: true };
+}
+
 function validarCamion(camion) {
   if (!camion.id || !enRangoReservado(camion.id)) {
     return {
@@ -66,6 +89,8 @@ function validarCamion(camion) {
     ) {
       return { valido: false, detalle: 'camion.setpointHumedadPct debe ser un numero entre 0 y 100' };
     }
+    const umbrales = validarUmbrales(camion);
+    if (!umbrales.valido) return umbrales;
   }
   if (
     camion.odometroInicialKm !== undefined &&

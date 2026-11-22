@@ -8,7 +8,7 @@
 
 import { log } from '../log.js';
 import { enRangoReservado } from '../domain/rangoDispositivoSimulado.js';
-import { mapFallaMotor } from './viajeRepository.js';
+import { mapFallaMotor, mapFallaCarga } from './viajeRepository.js';
 
 export function validarCamion(camion) {
   if (!enRangoReservado(camion.id)) {
@@ -37,6 +37,9 @@ function mapRow(row) {
       tipoCarga: row.tipo_carga,
       setpointTempC: row.setpoint_temp_c == null ? null : Number(row.setpoint_temp_c),
       setpointHumedadPct: row.setpoint_humedad_pct == null ? null : Number(row.setpoint_humedad_pct),
+      // Feature 019: rango del viaje refrigerado en curso, null si no llego.
+      umbralMinC: row.umbral_min_c == null ? null : Number(row.umbral_min_c),
+      umbralMaxC: row.umbral_max_c == null ? null : Number(row.umbral_max_c),
       odometroInicialKm: Number(row.odometro_inicial_km),
     },
     ruta: {
@@ -53,8 +56,9 @@ function mapRow(row) {
       indiceActual: row.indice_actual,
       odometroActualKm: Number(row.odometro_actual_km),
       estado: row.estado,
-      fallaTipo: row.falla_tipo,
       fallaIndiceDisparo: row.falla_indice_disparo,
+      // Feature 019: desvio termico manual (falla_tipo = 'desvio_termico').
+      ...mapFallaCarga(row),
       // Feature 016: falla de motor, independiente de la de carga (FR-004).
       ...mapFallaMotor(row),
     },
@@ -68,10 +72,11 @@ export async function obtenerViajesEnCurso(pool) {
   const { rows } = await pool.query(`
     SELECT
       c.id AS camion_id, c.nombre, c.vin, c.tipo_carga,
-      c.setpoint_temp_c, c.setpoint_humedad_pct, c.odometro_inicial_km,
+      c.setpoint_temp_c, c.setpoint_humedad_pct, c.umbral_min_c, c.umbral_max_c, c.odometro_inicial_km,
       r.id AS ruta_id, r.nombre AS ruta_nombre, r.puntos, r.paradas,
       v.id AS viaje_id, v.sentido, v.indice_actual, v.odometro_actual_km, v.estado,
       v.falla_tipo, v.falla_indice_disparo,
+      v.falla_carga_sentido, v.falla_carga_activada_en, v.falla_carga_desactivada_en,
       v.falla_motor_origen, v.falla_motor_indice_disparo, v.falla_motor_duracion_min,
       v.falla_motor_activada_en, v.falla_motor_desactivada_en
     FROM simulador.camion c
