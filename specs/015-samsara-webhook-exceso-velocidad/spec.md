@@ -62,6 +62,17 @@ always. Please, also think about what to modify in backend for this case."
   webhook, con la patente como respaldo. Esos ids nunca figuran en la lista de dispositivos Rinho
   simulados.
 
+### Session 2026-11-22
+
+- Q: ¿En qué zona horaria guarda y envía AgroLinkBackend las horas de inicio y fin del exceso? →
+  A: En UTC, igual que el resto de la telemetría (posiciones, temperaturas, alertas). Antes se
+  guardaban en hora de Argentina; el frontend lee las horas de telemetría sin zona como UTC y las
+  muestra en la zona del navegador (AgroLink spec 027), así que se verían 3 horas antes. La hora
+  de inicio del viaje según el proveedor es una fecha de viaje y sigue en hora de Argentina
+  (`TripSchedulePolicy.ZONE`).
+  Los episodios y alertas guardados antes del cambio se corrigen una sola vez con
+  `AgroLinkBackend/scripts/speeding-episodes-a-utc.sql`.
+
 ## Contexto
 
 El objetivo es demostrar, para la entrega de la POC, que AgroLink opera con **más de un proveedor
@@ -263,6 +274,10 @@ resultado de cada uno.
   proveedor, patente, id del vehículo en el proveedor, hora de inicio del exceso, hora de fin (solo
   en el fin), hora de inicio del viaje según el proveedor e identificador del evento del proveedor.
   El formato de Samsara no llega a la lógica de alertas ni de viajes.
+- **FR-005a**: Las horas de inicio y fin del exceso DEBEN guardarse y enviarse en UTC, igual que el
+  resto de la telemetría, para que el frontend las muestre en la zona del navegador. La hora de
+  inicio del viaje según el proveedor DEBE quedar en hora de Argentina, como las fechas de viaje
+  (clarificación 2026-11-22).
 - **FR-006**: AgroLinkBackend DEBE identificar el vehículo por el id de vehículo que informa Samsara,
   comparándolo con el identificador de dispositivo IoT del vehículo en AgroLink. Si no hay
   coincidencia, DEBE usar como respaldo la patente informada, con la normalización de patente

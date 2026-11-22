@@ -18,7 +18,7 @@ alcance por tenant (`TenantAccessGuard`) que el resto de los endpoints de alerta
   "speeding": {                                 // null para cualquier otro tipo
     "vehiclePlate": "AGL007",
     "provider": "SAMSARA",
-    "startTime": "2026-11-04T10:05:12",
+    "startTime": "2026-11-04T13:05:12",          // UTC (v1.2)
     "endTime": null,
     "durationSeconds": null,
     "inProgress": true,
@@ -30,8 +30,13 @@ alcance por tenant (`TenantAccessGuard`) que el resto de los endpoints de alerta
 `driverName` (v1.1, aditivo) sale del usuario vinculado al chofer del viaje asociado al episodio,
 como "Nombre Apellido".
 
-Las fechas son locales (`TripSchedulePolicy.ZONE`), igual que el resto de `AlertResponse`. La
-`description` aclara que la severidad la determinó el proveedor (spec FR-025).
+**Fechas (v1.2)**: `speeding.startTime`, `speeding.endTime`, `triggerDateTime` y
+`resolveDateTime` van en **UTC** sin indicador de zona (`yyyy-MM-dd'T'HH:mm:ss`), igual que el
+resto de las alertas de telemetría. El frontend las lee como UTC y las muestra en la zona del
+navegador. Hasta v1.1 iban en hora de Argentina (`TripSchedulePolicy.ZONE`): con el frontend que
+lee la telemetría como UTC (AgroLink spec 027) se verían 3 horas antes.
+
+La `description` aclara que la severidad la determinó el proveedor (spec FR-025).
 
 ## 2. `GET /api/v1/alerts/driving`
 

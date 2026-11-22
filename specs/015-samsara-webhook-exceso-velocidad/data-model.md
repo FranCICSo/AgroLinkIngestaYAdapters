@@ -90,8 +90,12 @@ spec) y el proceso no arranca.
 Salida de `SamsaraSpeedingEventAdapter` (Principio I): `kind` (`SPEEDING_STARTED` |
 `SPEEDING_ENDED`), `provider` (`SAMSARA`), `providerEventId`, `providerVehicleId`, `plate`,
 `startTime`, `endTime` (solo `ENDED`), `providerTripStartTime`, `sourcePosition` (id de ingesta).
-Las horas se convierten de RFC 3339 a `LocalDateTime` en `TripSchedulePolicy.ZONE`, igual que el
-resto del backend.
+Las horas del exceso (`startTime`, `endTime`) se convierten de RFC 3339 a `LocalDateTime` en
+**UTC**, igual que el resto de la telemetría (FR-005a). `providerTripStartTime` es una fecha de
+viaje y se convierte en `TripSchedulePolicy.ZONE` (hora de Argentina), como `Trip`.
+
+> Hasta el 2026-11-22 las tres horas se convertían en `TripSchedulePolicy.ZONE`. Los episodios y
+> alertas guardados antes se corrigen con `AgroLinkBackend/scripts/speeding-episodes-a-utc.sql`.
 
 **Validación del adaptador** (Principio VIII: completo / faltante / inválido). Un tipo de evento
 no soportado da `Optional.empty()` sin error. Si falta `startTime` o vehículo (ni id ni patente),
@@ -106,8 +110,8 @@ o `endTime < startTime`, se rechaza con motivo.
 | `vehicle` | FK `vehicles` | No nulo. |
 | `trip` | FK `trips` | Nulo si no había viaje activo al abrir. |
 | `provider` | string | `SAMSARA`. |
-| `startTime` | `LocalDateTime` | No nulo. |
-| `endTime` | `LocalDateTime` | Nulo mientras está abierto. |
+| `startTime` | `LocalDateTime` | No nulo. UTC. |
+| `endTime` | `LocalDateTime` | Nulo mientras está abierto. UTC. |
 | `startEventId` / `endEventId` | string | Únicos (nullable). |
 | `status` | `OPEN` \| `CLOSED` | |
 | `alert` | FK `alerts` | Alerta vinculada. |
