@@ -287,8 +287,29 @@ Rinho: no tienen ruta ni tramas UDP.
 | `SAMSARA_EMISOR_HABILITADO` | `false` | `true` para activarlo, independiente de la simulación Rinho |
 | `SAMSARA_WEBHOOK_URL` | compose: `http://agrolink-ingesta:${REPORTES_HTTP_PORT}/api/v1/proveedores/samsara/webhook` | Obligatoria si está habilitado |
 | `SAMSARA_LIMITE_KMH` / `SAMSARA_MARGEN_KMH` | `80` / `20` | Umbral de exceso severo = límite + margen (ambos > 0) |
-| `SAMSARA_EXCESOS_POR_HORA` | `0.3125` | Ráfagas por hora de viaje (≈ 2,5 cada 8 h). **Para una demo corta, `6`** (~1 cada 10 min) |
+| `SAMSARA_EXCESOS_POR_HORA` | `0.3125` | Ráfagas al azar por hora de viaje y por vehículo (≈ 2,5 cada 8 h). `0.5` ≈ 1 cada 2 h; `6` ≈ 1 cada 10 min (solo para probar). `0` apaga las al azar: quedan solo las forzadas a mano. Es un promedio: dos excesos pueden salir más juntos o más separados |
 | `SAMSARA_CICLO_MS` | `5000` | Paso del modelo de velocidad (≥ 1000) |
+
+### Forzar un exceso a mano
+
+Para una demo, sin esperar al azar: `POST /samsara/vehiculos/{vehiculo}/exceso`, con la patente
+(`AGL007`) o el id Samsara. El vehículo tiene que tener un viaje en curso. Arranca una ráfaga en
+el acto: Started sale en 5-10 s y Ended cuando termina la duración (body opcional
+`{"duracionS": 20..600}`, por defecto 90). El puerto no se publica, así que se llama desde
+dentro del contenedor:
+
+```bash
+docker compose -f deploy/compose.yaml exec simulador-viajes \
+  curl -s -X POST localhost:8090/samsara/vehiculos/AGL007/exceso -d '{"duracionS": 60}'
+```
+
+| Status | Cuándo |
+|---|---|
+| `202` `FORZADO` | Ráfaga arrancada (`terminaEn` dice hasta cuándo) |
+| `200` `YA_EN_EXCESO` | Ya había una ráfaga o un exceso abierto: no se duplica |
+| `409` `sin_viaje_en_curso` | El vehículo no tiene viaje Samsara en curso |
+| `404` `vehiculo_no_samsara` / `400` `validacion` | Patente desconocida / duración fuera de rango |
+| `503` `emisor_deshabilitado` | `SAMSARA_EMISOR_HABILITADO` no es `true` |
 
 ## Tests
 

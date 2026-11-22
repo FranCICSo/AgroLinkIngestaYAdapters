@@ -114,3 +114,101 @@ test('las rutas HTTP Samsara responden 503 / SIN_SIMULACION con el emisor deshab
   const detenido = await pedir(conEmisor(), '/samsara/viajes/VIAJE-1/detencion', { vehiculoId: ID });
   assert.equal(detenido.body.efecto, 'DETENIDA');
 });
+
+// Activacion manual del exceso (POST /samsara/vehiculos/{vehiculo}/exceso). Con rng = 0.5 el
+// azar nunca arranca una rafaga, asi que todo exceso que aparezca es el forzado.
+async function correrCiclos(emisor, avanzar, n) {
+  for (let i = 0; i < n; i++) {
+    avanzar(5000);
+    await emisor.ciclo();
+  }
+}
+
+test('forzar un exceso por patente envia Started enseguida y Ended al terminar la duracion', async () => {
+  const { emisor, enviados, avanzar } = armar();
+  await emisor.iniciarViaje(INICIO);
+  await correrCiclos(emisor, avanzar, 3);
+  assert.equal(enviados.length, 0);
+
+  const r = emisor.forzarExceso({ vehiculo: 'agl007', duracionS: 30 });
+  assert.equal(r.status, 202);
+  assert.equal(r.body.efecto, 'FORZADO');
+  assert.equal(r.body.vehiculoId, ID);
+  assert.equal(r.body.tripCode, 'VIAJE-1');
+
+  // La velocidad sube hacia el objetivo en uno o dos ciclos (5-10 s).
+  await correrCiclos(emisor, avanzar, 2);
+  assert.deepEqual(enviados.map((p) => p.eventType), ['SevereSpeedingStarted']);
+
+  await correrCiclos(emisor, avanzar, 10);
+  assert.deepEqual(enviados.map((p) => p.eventType), ['SevereSpeedingStarted', 'SevereSpeedingEnded']);
+  const { startTime, endTime } = enviados[1].data.data;
+  const duracionS = (Date.parse(endTime) - Date.parse(startTime)) / 1000;
+  assert.ok(duracionS >= 15 && duracionS <= 35, `duracion ${duracionS}s`);
+});
+
+test('forzar un exceso funciona aunque la tasa al azar sea 0, tambien por id Samsara', async () => {
+  const enviados = [];
+  let ahoraMs = Date.UTC(2026, 10, 4, 13, 0, 0);
+  const emisor = crearEmisorSamsara({
+    config: { umbralKmh: 100, excesosPorHora: 0, cicloMs: 5000, orgId: '1001', webhookId: 'agrolink-poc' },
+    webhookClient: { enviar: async (p) => { enviados.push(p); return { resultado: 'aceptado', status: 200 }; } },
+    log: logMudo,
+    rng: () => 0.0,
+    ahora: () => new Date(ahoraMs),
+  });
+  await emisor.iniciarViaje(INICIO);
+  assert.equal(emisor.forzarExceso({ vehiculo: ID }).status, 202);
+  for (let i = 0; i < 2; i++) {
+    ahoraMs += 5000;
+    await emisor.ciclo();
+  }
+  assert.equal(enviados[0]?.eventType, 'SevereSpeedingStarted');
+});
+
+test('forzar un exceso valida vehiculo, viaje en curso y duracion, y no duplica uno en curso', async () => {
+  const { emisor, avanzar } = armar();
+  assert.equal(emisor.forzarExceso({ vehiculo: 'AAA111' }).status, 404);
+  const sinViaje = emisor.forzarExceso({ vehiculo: 'AGL007' });
+  assert.equal(sinViaje.status, 409);
+  assert.equal(sinViaje.body.error, 'sin_viaje_en_curso');
+
+  await emisor.iniciarViaje(INICIO);
+  assert.equal(emisor.forzarExceso({ vehiculo: 'AGL007', duracionS: 5 }).status, 400);
+  assert.equal(emisor.forzarExceso({ vehiculo: 'AGL007', duracionS: '60' }).status, 400);
+  assert.equal(emisor.forzarExceso({ vehiculo: 'AGL007', duracionS: 601 }).status, 400);
+
+  assert.equal(emisor.forzarExceso({ vehiculo: 'AGL007' }).status, 202);
+  await correrCiclos(emisor, avanzar, 1);
+  const repetido = emisor.forzarExceso({ vehiculo: 'AGL007' });
+  assert.equal(repetido.status, 200);
+  assert.equal(repetido.body.efecto, 'YA_EN_EXCESO');
+});
+
+test('la ruta HTTP de exceso manual responde 503 sin emisor y delega con la patente y la duracion', async () => {
+  const pedir = async (server, path, body) => {
+    await new Promise((r) => server.listen(0, r));
+    const { port } = server.address();
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}${path}`, {
+        method: 'POST',
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+      return { status: res.status, body: await res.json() };
+    } finally {
+      await new Promise((r) => server.close(r));
+    }
+  };
+
+  const sinEmisor = await pedir(crearRutaHttpServer(null, 'http://osrm', null), '/samsara/vehiculos/AGL007/exceso');
+  assert.equal(sinEmisor.status, 503);
+
+  const { emisor } = armar();
+  const server = () => crearRutaHttpServer(null, 'http://osrm', emisor);
+  assert.equal((await pedir(server(), '/samsara/vehiculos/AGL007/exceso')).status, 409);
+  await emisor.iniciarViaje(INICIO);
+  const forzado = await pedir(server(), '/samsara/vehiculos/AGL007/exceso', { duracionS: 45 });
+  assert.equal(forzado.status, 202);
+  assert.equal(forzado.body.duracionS, 45);
+  assert.equal(forzado.body.patente, 'AGL007');
+});

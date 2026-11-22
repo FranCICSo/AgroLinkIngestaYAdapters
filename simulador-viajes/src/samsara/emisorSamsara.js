@@ -5,12 +5,20 @@
 //
 // El estado vive en memoria (research.md D-09), como `estadoPorCamion` en index.js: si el
 // proceso se reinicia, los viajes en curso se pierden hasta el proximo aviso de inicio.
-import { buscarVehiculoSamsara } from './vehiculosSamsara.js';
+import { buscarVehiculoSamsara, buscarVehiculoSamsaraPorIdOPatente } from './vehiculosSamsara.js';
 import { crearEstadoVelocidad, avanzarVelocidad } from './modeloVelocidad.js';
 import { detectarCruce, forzarFin } from './detectorExceso.js';
 import { construirPayload } from './payloadSamsara.js';
 
 const TRIP_CODE_MAX = 64;
+
+// Exceso forzado a mano (POST /samsara/vehiculos/{vehiculo}/exceso): cuanto dura la rafaga y
+// cuanto pasa el umbral. La velocidad tarda un ciclo en cruzarlo, asi que el exceso informado
+// dura un poco menos que la rafaga.
+export const EXCESO_MANUAL_DURACION_S_DEFAULT = 90;
+export const EXCESO_MANUAL_DURACION_S_MIN = 20;
+export const EXCESO_MANUAL_DURACION_S_MAX = 600;
+const EXCESO_MANUAL_EXTRA_KMH = 10;
 
 function respuesta(status, body) {
   return { status, body };
@@ -114,6 +122,44 @@ export function crearEmisorSamsara({ config, webhookClient, log, rng = Math.rand
     return respuesta(200, { vehiculoId, tripCode, efecto: 'DETENIDA' });
   }
 
+  // Activacion manual: arranca una rafaga ya, sin esperar al azar ni al enfriamiento. El ciclo
+  // normal la toma desde el proximo paso, asi que Started y Ended salen como en un exceso al azar.
+  function forzarExceso({ vehiculo: valor, duracionS = EXCESO_MANUAL_DURACION_S_DEFAULT } = {}) {
+    const vehiculo = buscarVehiculoSamsaraPorIdOPatente(valor);
+    if (!vehiculo) {
+      return respuesta(404, { error: 'vehiculo_no_samsara', detalle: `"${valor}" no es un vehiculo Samsara simulado` });
+    }
+    if (
+      typeof duracionS !== 'number' ||
+      !Number.isFinite(duracionS) ||
+      duracionS < EXCESO_MANUAL_DURACION_S_MIN ||
+      duracionS > EXCESO_MANUAL_DURACION_S_MAX
+    ) {
+      return respuesta(400, {
+        error: 'validacion',
+        detalle: `duracionS debe ser un numero entre ${EXCESO_MANUAL_DURACION_S_MIN} y ${EXCESO_MANUAL_DURACION_S_MAX}`,
+      });
+    }
+    const base = { vehiculoId: vehiculo.id, patente: vehiculo.patente };
+    const entrada = enCurso.get(vehiculo.id);
+    if (!entrada) {
+      return respuesta(409, {
+        error: 'sin_viaje_en_curso',
+        detalle: `${vehiculo.patente} no tiene un viaje Samsara en curso: inicia un viaje primero`,
+      });
+    }
+    if (entrada.velocidad.rafaga || entrada.excesoAbierto) {
+      return respuesta(200, { ...base, tripCode: entrada.tripCode, efecto: 'YA_EN_EXCESO' });
+    }
+    const terminaEn = new Date(ahora().getTime() + duracionS * 1000);
+    entrada.velocidad = {
+      ...entrada.velocidad,
+      rafaga: { objetivoKmh: config.umbralKmh + EXCESO_MANUAL_EXTRA_KMH, terminaEnMs: terminaEn.getTime(), alcanzada: false },
+    };
+    log.info('Exceso Samsara forzado a mano', { ...base, tripCode: entrada.tripCode, duracionS });
+    return respuesta(202, { ...base, tripCode: entrada.tripCode, efecto: 'FORZADO', duracionS, terminaEn: terminaEn.toISOString() });
+  }
+
   async function ciclo() {
     if (cicloEnCurso) return;
     cicloEnCurso = true;
@@ -137,6 +183,7 @@ export function crearEmisorSamsara({ config, webhookClient, log, rng = Math.rand
   return {
     iniciarViaje,
     detenerViaje,
+    forzarExceso,
     ciclo,
     arrancar() {
       intervalo = setInterval(() => {

@@ -1,5 +1,6 @@
 // Endpoint HTTP interno POST /rutas (feature 011-generar-ruta-simulada, FR-005), mas los avisos
-// de viaje del emisor Samsara (feature 015): POST /samsara/viajes[/{tripCode}/detencion], y la
+// de viaje del emisor Samsara (feature 015): POST /samsara/viajes[/{tripCode}/detencion] y el
+// exceso forzado a mano POST /samsara/vehiculos/{vehiculo}/exceso, y la
 // activacion manual del sobrecalentamiento de motor (feature 016): POST|DELETE|GET
 // /camiones/{camionId}/falla-motor, y la detencion de la simulacion Rinho de un camion
 // (feature 014, Historia 3): POST /camiones/{camionId}/detencion.
@@ -43,6 +44,11 @@ function responderJson(res, status, body) {
 }
 
 const RUTA_DETENCION_SAMSARA = /^\/samsara\/viajes\/([^/]+)\/detencion$/;
+// Exceso de velocidad forzado a mano, para una demo: {vehiculo} es la patente (AGL007) o el id
+// Samsara. Body opcional {"duracionS": 20..600}. Uso, desde la VM:
+//   docker compose -f deploy/compose.yaml exec simulador-viajes \
+//     curl -s -X POST localhost:8090/samsara/vehiculos/AGL007/exceso
+export const RUTA_EXCESO_SAMSARA = /^\/samsara\/vehiculos\/([^/?]+)\/exceso\/?$/;
 
 // Feature 015-samsara-webhook-exceso-velocidad: avisos de viaje para el emisor Samsara
 // (contracts/simulacion-samsara-avisos.md §3). Con el emisor deshabilitado no hay nada en
@@ -53,6 +59,17 @@ async function atenderSamsara(req, res, emisorSamsara) {
     input = await leerBodyJson(req);
   } catch {
     responderJson(res, 400, { error: 'validacion', detalle: 'body no es JSON valido' });
+    return;
+  }
+
+  const exceso = req.url.match(RUTA_EXCESO_SAMSARA);
+  if (exceso) {
+    if (!emisorSamsara) {
+      responderJson(res, 503, { error: 'emisor_deshabilitado' });
+      return;
+    }
+    const r = emisorSamsara.forzarExceso({ ...input, vehiculo: decodeURIComponent(exceso[1]) });
+    responderJson(res, r.status, r.body);
     return;
   }
 
@@ -99,7 +116,10 @@ export function crearRutaHttpServer(pool, osrmBaseUrl, emisorSamsara = null, { f
       }
       return;
     }
-    if (req.method === 'POST' && (req.url === '/samsara/viajes' || RUTA_DETENCION_SAMSARA.test(req.url))) {
+    if (
+      req.method === 'POST' &&
+      (req.url === '/samsara/viajes' || RUTA_DETENCION_SAMSARA.test(req.url) || RUTA_EXCESO_SAMSARA.test(req.url))
+    ) {
       await atenderSamsara(req, res, emisorSamsara);
       return;
     }
