@@ -21,9 +21,18 @@ function resolverCarga(camion) {
       tipoCarga: 'refrigerada',
       setpointTempC: camion.setpointTempC,
       setpointHumedadPct: camion.setpointHumedadPct ?? SETPOINT_HUMEDAD_DEFAULT_PCT,
+      // Feature 019: el desvio termico manual se ubica por fuera de estos umbrales.
+      umbralMinC: camion.umbralTermicoMinC ?? null,
+      umbralMaxC: camion.umbralTermicoMaxC ?? null,
     };
   }
-  return { tipoCarga: camion.tipoCarga ?? 'seca', setpointTempC: null, setpointHumedadPct: null };
+  return {
+    tipoCarga: camion.tipoCarga ?? 'seca',
+    setpointTempC: null,
+    setpointHumedadPct: null,
+    umbralMinC: null,
+    umbralMaxC: null,
+  };
 }
 
 export async function iniciarViajeParaCamion(pool, { camion, rutaId }) {

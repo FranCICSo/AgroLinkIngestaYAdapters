@@ -113,18 +113,20 @@ public class SimuladorViajesClient {
      * Siempre informa {@code tipoCarga}: el simulador la pisa en el camion existente, asi un camion
      * que antes llevo carga seca pasa a emitir el segmento BLE (y viceversa). El setpoint es el
      * centro del rango de umbrales del viaje, para que la temperatura normal simulada no dispare
-     * alertas; la humedad la completa el simulador con su default.
+     * alertas; la humedad la completa el simulador con su default. Feature 019: los umbrales del
+     * viaje van tambien, para que el desvio termico manual del simulador quede fuera de ellos.
      */
     private CamionRequest camion(ViajeProgramado viajeProgramado) {
         if (!viajeProgramado.esCargaRefrigerada()) {
             return new CamionRequest(viajeProgramado.getIotDeviceId(), viajeProgramado.getOdometroInicialKm(),
-                    TIPO_CARGA_SECA, null);
+                    TIPO_CARGA_SECA, null, null, null);
         }
         BigDecimal setpoint = viajeProgramado.getUmbralTermicoMinC()
                 .add(viajeProgramado.getUmbralTermicoMaxC())
                 .divide(BigDecimal.valueOf(2), 1, RoundingMode.HALF_UP);
         return new CamionRequest(viajeProgramado.getIotDeviceId(), viajeProgramado.getOdometroInicialKm(),
-                TIPO_CARGA_REFRIGERADA, setpoint);
+                TIPO_CARGA_REFRIGERADA, setpoint,
+                viajeProgramado.getUmbralTermicoMinC(), viajeProgramado.getUmbralTermicoMaxC());
     }
 
     private record RutaRequest(String nombre, PuntoRequest origen, PuntoRequest destino, CamionRequest camion) {
@@ -136,6 +138,7 @@ public class SimuladorViajesClient {
     // Los null se omiten: odometroInicialKm null = el simulador sigue desde el ultimo odometro
     // del camion; setpointTempC null = carga seca.
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    private record CamionRequest(String id, BigDecimal odometroInicialKm, String tipoCarga, BigDecimal setpointTempC) {
+    private record CamionRequest(String id, BigDecimal odometroInicialKm, String tipoCarga, BigDecimal setpointTempC,
+            BigDecimal umbralTermicoMinC, BigDecimal umbralTermicoMaxC) {
     }
 }

@@ -80,3 +80,24 @@ Mismo servidor HTTP que `POST /rutas` (`PUERTO_HTTP`, sin `ports:` publicados). 
 
 Si el emisor está deshabilitado, la detención responde `200 SIN_SIMULACION_EN_CURSO`, porque no
 puede haber nada en curso.
+
+### 3.3 `POST /samsara/vehiculos/{vehiculo}/exceso` (manual, demo)
+
+No lo llama `agrolink-ingesta`: es para forzar un exceso a mano desde dentro de la red de
+Docker (`docker compose exec simulador-viajes curl …`). `{vehiculo}` es la patente (sin
+distinguir mayúsculas) o el id Samsara. Arranca una ráfaga en el acto, sin esperar al azar ni
+al enfriamiento entre ráfagas, y funciona aunque `SAMSARA_EXCESOS_POR_HORA=0`. Started y Ended
+salen por el mismo camino que un exceso al azar.
+
+```jsonc
+{ "duracionS": 60 }   // opcional, 20..600, default 90: duración de la ráfaga
+```
+
+| Status | Cuerpo | Cuándo |
+|---|---|---|
+| `202` | `{ "vehiculoId", "patente", "tripCode", "efecto": "FORZADO", "duracionS", "terminaEn" }` | Ráfaga arrancada. |
+| `200` | `{ …, "efecto": "YA_EN_EXCESO" }` | Ya había una ráfaga o un exceso abierto. |
+| `409` | `{ "error": "sin_viaje_en_curso" }` | El vehículo no tiene viaje en curso. |
+| `404` | `{ "error": "vehiculo_no_samsara" }` | Vehículo fuera de la lista. |
+| `400` | `{ "error": "validacion" }` | `duracionS` no es un número en rango. |
+| `503` | `{ "error": "emisor_deshabilitado" }` | Emisor deshabilitado. |

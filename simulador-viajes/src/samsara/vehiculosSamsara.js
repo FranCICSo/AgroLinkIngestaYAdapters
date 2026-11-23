@@ -11,3 +11,11 @@ export const VEHICULOS_SAMSARA = Object.freeze([
 export function buscarVehiculoSamsara(id) {
   return VEHICULOS_SAMSARA.find((v) => v.id === id) ?? null;
 }
+
+// Para la activacion manual del exceso (POST /samsara/vehiculos/{vehiculo}/exceso): acepta el id
+// de Samsara o la patente, que es lo que se ve en AgroLink.
+export function buscarVehiculoSamsaraPorIdOPatente(valor) {
+  if (typeof valor !== 'string') return null;
+  const patente = valor.trim().toUpperCase();
+  return buscarVehiculoSamsara(valor) ?? VEHICULOS_SAMSARA.find((v) => v.patente === patente) ?? null;
+}

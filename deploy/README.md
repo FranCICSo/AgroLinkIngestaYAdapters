@@ -433,6 +433,81 @@ simulador-viajes` (el pipeline no lo detiene solo).
 > del viaje. Confirmar este valor en el `.env` de la VM **antes** de disparar
 > `deploy_simulador`.
 
+### 7.3 Alertas de exceso de velocidad Samsara en la VM (feature 015)
+
+El emisor de webhooks Samsara corre **dentro** del contenedor `simulador-viajes`: no es un
+servicio aparte. Solo simula a `AGL007` y `AGL008`, y solo mientras tienen un viaje en curso en
+AgroLink. El circuito completo es:
+
+```
+viaje iniciado (AgroLinkBackend) → agrolink-ingesta → simulador-viajes (emisor Samsara)
+  → webhook → agrolink-ingesta (telemetria.evento_samsara)
+  → AgroLinkBackend consulta /eventos cada 10 s → alerta SPEEDING en "Conducción"
+```
+
+#### Habilitarlo
+
+1. En el `deploy/.env` de la VM (nunca se commitea, así que va a mano):
+
+   ```dotenv
+   SIMULADOR_PUERTO_HTTP=8090          # sin esto el simulador no recibe los avisos de viaje
+   SAMSARA_EMISOR_HABILITADO=true      # default false: sin esto, todo viaje Samsara responde 503
+   SAMSARA_EXCESOS_POR_HORA=0.5        # ~1 exceso al azar cada 2 h por vehículo; 0 = solo a mano
+   ```
+
+   `SAMSARA_WEBHOOK_URL` puede quedar sin definir: compose usa
+   `http://agrolink-ingesta:${REPORTES_HTTP_PORT}/api/v1/proveedores/samsara/webhook`.
+2. Desplegar la imagen del simulador con el workflow manual (§7.2, input
+   `deploy_simulador`). Un push a `master` **no** reconstruye esta imagen: si el contenedor
+   corre una imagen anterior a la feature 015, no hay emisor aunque el `.env` esté bien. Se
+   detecta con `docker exec simulador-viajes ls src/samsara` (no existe → imagen vieja).
+3. Si solo cambió el `.env`, recrear el contenedor para que lo lea (un `up -d` a secas puede
+   dejarlo como está):
+
+   ```bash
+   docker compose -f deploy/compose.yaml up -d --force-recreate --no-deps simulador-viajes
+   ```
+
+4. Iniciar un viaje **nuevo** para `AGL007` o `AGL008`. El estado del emisor vive en memoria:
+   los viajes iniciados antes de recrear el contenedor ya no generan excesos.
+
+En AgroLinkBackend, el proveedor `SAMSARA` tiene que estar `ACTIVE` (el seeder lo deja así) y
+`AGROLINK_SAMSARA_POLL_SCHEDULER_ENABLED` en `true` (default).
+
+#### Frecuencia
+
+`SAMSARA_EXCESOS_POR_HORA` es una tasa **media** de excesos al azar por vehículo y por hora de
+viaje: `0.5` da ~1 cada 2 h, `6` ~1 cada 10 min (solo para probar), `0` ninguno. Al ser al azar,
+dos excesos pueden salir más juntos o más separados que el promedio. Cada exceso dura entre
+~20 s y ~3 min, y entre uno y el siguiente pasa como mínimo 1 min.
+
+#### Forzar un exceso a mano (demo)
+
+Con el vehículo en viaje, desde la VM (el puerto 8090 no se publica, por eso va por `exec`):
+
+```bash
+docker compose -f deploy/compose.yaml exec simulador-viajes \
+  curl -s -X POST localhost:8090/samsara/vehiculos/AGL007/exceso -d '{"duracionS": 60}'
+```
+
+- Acepta la patente o el id Samsara. `duracionS` es opcional (20 a 600, default 90).
+- El webhook de inicio sale a los 5-10 s y la alerta aparece en "Conducción" unos 10 s después.
+  Al cumplirse la duración sale el de fin y la alerta pasa a "Finalizada".
+- Funciona aunque `SAMSARA_EXCESOS_POR_HORA=0`.
+- Respuestas: `202 FORZADO`, `200 YA_EN_EXCESO` (ya había uno abierto), `409
+  sin_viaje_en_curso`, `404 vehiculo_no_samsara`, `400 validacion`, `503 emisor_deshabilitado`.
+
+#### Verificar
+
+| Paso | Comando (en la VM, salvo el curl) | Qué buscar |
+|---|---|---|
+| Emisor arrancado | `docker logs simulador-viajes 2>&1 \| grep -iE 'samsara\|arrancado'` | `Emisor Samsara arrancado` (si falta: `.env` o imagen vieja) |
+| Aviso de viaje | `docker logs agrolink-ingesta 2>&1 \| grep 'Aviso de .* Samsara'` | `Aviso de inicio Samsara reenviado` (`503 emisor_deshabilitado` = emisor apagado) |
+| Webhook enviado | `docker logs simulador-viajes 2>&1 \| grep 'Webhook Samsara'` | `Webhook Samsara enviado` |
+| Webhook guardado | `docker logs agrolink-ingesta 2>&1 \| grep 'Webhook Samsara guardado'` | una línea por evento |
+| Eventos para el backend | `curl -s 'http://<IP-VM>:${VEHICULO_ESTADO_HTTP_PORT}/api/v1/proveedores/samsara/eventos?despuesDe=0&limite=5'` | `eventos` no vacío |
+| Alerta | logs de AgroLinkBackend: `grep 'Speeding episode'` | `opened` / `closed` |
+
 ## 8. Salida: cuando se termine el crédito de Azure
 
 El crédito de Azure for Students (100 USD) alcanza, a unos 30,6 USD/mes (VM más IPv4), más o

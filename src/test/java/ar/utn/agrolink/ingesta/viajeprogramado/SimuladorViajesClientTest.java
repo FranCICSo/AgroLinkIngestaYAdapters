@@ -82,6 +82,8 @@ class SimuladorViajesClientTest {
                 .andExpect(jsonPath("$.camion.tipoCarga").value("refrigerada"))
                 .andExpect(jsonPath("$.camion.setpointTempC").value(4.5))
                 .andExpect(jsonPath("$.camion.setpointHumedadPct").doesNotExist())
+                .andExpect(jsonPath("$.camion.umbralTermicoMinC").value(2))
+                .andExpect(jsonPath("$.camion.umbralTermicoMaxC").value(7))
                 .andRespond(withStatus(HttpStatus.CREATED));
         ViajeProgramado viaje = viajeDeEjemplo();
         viaje.setUmbralesTermicos(new BigDecimal("2"), new BigDecimal("7"));
@@ -98,6 +100,8 @@ class SimuladorViajesClientTest {
         server.expect(requestTo("/rutas")).andExpect(method(HttpMethod.POST))
                 .andExpect(jsonPath("$.camion.tipoCarga").value("seca"))
                 .andExpect(jsonPath("$.camion.setpointTempC").doesNotExist())
+                .andExpect(jsonPath("$.camion.umbralTermicoMinC").doesNotExist())
+                .andExpect(jsonPath("$.camion.umbralTermicoMaxC").doesNotExist())
                 .andRespond(withStatus(HttpStatus.CREATED));
 
         new SimuladorViajesClient(builder.build()).arrancarViaje(viajeDeEjemplo());

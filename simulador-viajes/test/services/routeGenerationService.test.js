@@ -261,6 +261,61 @@ test('rechaza carga refrigerada sin setpointTempC valido o con humedad fuera de 
   assert.equal(pool.filas.length, 0);
 });
 
+test('acepta carga refrigerada con umbrales termicos validos', async (t) => {
+  t.mock.method(globalThis, 'fetch', async () => respuestaOsrmOk());
+  const pool = fakePool();
+
+  const resultado = await generarRuta(pool, 'http://osrm.local', {
+    nombre: 'Ruta demo umbrales',
+    origen: ORIGEN,
+    destino: DESTINO,
+    camion: { id: '900002', tipoCarga: 'refrigerada', setpointTempC: 5, umbralTermicoMinC: 2, umbralTermicoMaxC: 8 },
+  });
+
+  assert.equal(resultado.ok, true);
+});
+
+test('rechaza umbrales termicos incompletos, no numericos, fuera de rango o invertidos', async (t) => {
+  const fetchMock = t.mock.method(globalThis, 'fetch', async () => respuestaOsrmOk());
+  const pool = fakePool();
+  const refrigerado = { id: '900002', tipoCarga: 'refrigerada', setpointTempC: 5 };
+
+  for (const umbrales of [
+    { umbralTermicoMinC: 2 },
+    { umbralTermicoMaxC: 8 },
+    { umbralTermicoMinC: 'frio', umbralTermicoMaxC: 8 },
+    { umbralTermicoMinC: 2, umbralTermicoMaxC: 80 },
+    { umbralTermicoMinC: -60, umbralTermicoMaxC: 8 },
+    { umbralTermicoMinC: 8, umbralTermicoMaxC: 2 },
+  ]) {
+    const resultado = await generarRuta(pool, 'http://osrm.local', {
+      nombre: 'Ruta demo umbrales invalidos',
+      origen: ORIGEN,
+      destino: DESTINO,
+      camion: { ...refrigerado, ...umbrales },
+    });
+
+    assert.equal(resultado.ok, false, JSON.stringify(umbrales));
+    assert.equal(resultado.motivo, 'validacion');
+  }
+  assert.equal(fetchMock.mock.callCount(), 0);
+  assert.equal(pool.filas.length, 0);
+});
+
+test('con carga seca, los umbrales informados no provocan error', async (t) => {
+  t.mock.method(globalThis, 'fetch', async () => respuestaOsrmOk());
+  const pool = fakePool();
+
+  const resultado = await generarRuta(pool, 'http://osrm.local', {
+    nombre: 'Ruta demo seca con umbrales',
+    origen: ORIGEN,
+    destino: DESTINO,
+    camion: { id: '900002', tipoCarga: 'seca', umbralTermicoMinC: 8, umbralTermicoMaxC: 2 },
+  });
+
+  assert.equal(resultado.ok, true);
+});
+
 test('con camion.id numerico en el rango reservado, persiste la ruta y arranca un viaje en_curso', async (t) => {
   t.mock.method(globalThis, 'fetch', async () => respuestaOsrmOk());
   const pool = fakePool();

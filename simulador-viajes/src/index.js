@@ -5,6 +5,8 @@ import { obtenerViajesEnCurso, actualizarProgresoViaje, finalizarYCrearVuelta } 
 import { avanzar } from './domain/avanceRuta.js';
 import { sintetizarCan } from './domain/sintesisCan.js';
 import { sintetizarBle } from './domain/sintesisBle.js';
+import { determinarModoBle } from './domain/modoBle.js';
+import { registrarTemperaturaCarga } from './domain/registroTemperaturaCarga.js';
 import { construirTrama } from './protocol/frameBuilder.js';
 import { crearUdpClient } from './net/udpClient.js';
 import { iniciarRutaHttpServer } from './http/rutaHttpServer.js';
@@ -28,26 +30,14 @@ const estadoPorCamion = new Map();
 let motorConfig = null;
 // Feature 016, ampliacion: consumo y umbral de recarga del tanque (loadCombustibleConfig).
 let combustibleConfig = undefined;
+// Feature 019: margenes del desvio termico manual de la carga (loadCargaDesvioConfig).
+let cargaDesvioConfig = undefined;
 
 function proximoMsgNum(camionId) {
   const estado = estadoPorCamion.get(camionId) ?? {};
   const siguiente = ((estado.msgNum ?? 0) + 1) % 10000;
   estadoPorCamion.set(camionId, { ...estado, msgNum: siguiente });
   return siguiente;
-}
-
-function determinarModoBle(viaje, resultado) {
-  if (viaje.fallaTipo === 'falla_compresor' && resultado.siguienteIndice >= viaje.fallaIndiceDisparo) {
-    return 'falla_compresor';
-  }
-  if (
-    viaje.fallaTipo === 'apertura_puerta' &&
-    resultado.enParadaEntrega &&
-    resultado.siguienteIndice === viaje.fallaIndiceDisparo
-  ) {
-    return 'apertura_puerta';
-  }
-  return 'normal';
 }
 
 // Feature 016 (data-model.md §1): resuelve el estado de la falla de motor del viaje, persiste
@@ -134,14 +124,20 @@ async function procesarCamion(pool, udpClient, entry) {
   const temperaturaMotorC = await sintetizarMotor(pool, { camion, viaje, estado, resultado });
 
   // FR-017: sin carga refrigerada, ble queda null y frameBuilder no agrega el segmento.
+  // Feature 019 (research.md D-04): la temperatura anterior solo vale dentro del mismo viaje, asi
+  // un viaje que termino con el desvio activo no hace arrancar el siguiente fuera del rango.
   const ble =
     camion.tipoCarga === 'refrigerada'
       ? sintetizarBle({
           tipoCarga: camion.tipoCarga,
           setpointTempC: camion.setpointTempC,
           setpointHumedadPct: camion.setpointHumedadPct,
-          temperaturaAnterior: estado.temperaturaBleC,
+          temperaturaAnterior: estado.viajeIdBle === viaje.id ? estado.temperaturaBleC : null,
           modo: determinarModoBle(viaje, resultado),
+          umbralMinC: camion.umbralMinC,
+          umbralMaxC: camion.umbralMaxC,
+          sentido: viaje.fallaCargaSentido ?? 'arriba',
+          config: cargaDesvioConfig,
         })
       : null;
 
@@ -174,10 +170,12 @@ async function procesarCamion(pool, udpClient, entry) {
     combustiblePct: can.combustiblePct,
     combustibleConsumidoL: can.combustibleConsumidoL,
     temperaturaBleC: ble ? ble.temperaturaC : estado.temperaturaBleC,
+    viajeIdBle: ble ? viaje.id : estado.viajeIdBle,
     temperaturaMotorC,
     viajeIdMotor: viaje.id,
   });
   registrarTemperaturaMotor(camion.id, temperaturaMotorC);
+  if (ble) registrarTemperaturaCarga(camion.id, ble.temperaturaC);
 
   const ack = await udpClient.enviarConReintentos(trama, {
     deviceId: camion.id,
@@ -219,6 +217,7 @@ async function main() {
   const config = loadConfig();
   motorConfig = config.motor;
   combustibleConfig = config.combustible;
+  cargaDesvioConfig = config.cargaDesvio;
   configurarSorteoFallaMotor(config.motor);
   const pool = createPool(config.db);
   const udpClient = crearUdpClient(config.receptor);
@@ -260,7 +259,12 @@ async function main() {
   // deploy/compose.yaml (research.md D-04, FR-006): alcanzable solo dentro de la red de
   // Docker compose, nunca directamente desde el frontend de AgroLink.
   const rutaHttpServer = config.puertoHttp
-    ? iniciarRutaHttpServer(pool, { osrmBaseUrl: config.osrmBaseUrl, puertoHttp: config.puertoHttp, emisorSamsara })
+    ? iniciarRutaHttpServer(pool, {
+        osrmBaseUrl: config.osrmBaseUrl,
+        puertoHttp: config.puertoHttp,
+        emisorSamsara,
+        cargaDesvio: config.cargaDesvio,
+      })
     : null;
 
   const shutdown = async (signal) => {

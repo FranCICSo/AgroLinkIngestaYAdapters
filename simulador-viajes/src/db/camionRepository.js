@@ -34,14 +34,24 @@ export async function obtenerCamion(pool, id) {
 
 export async function insertarCamion(
   pool,
-  { id, nombre, tipoCarga, odometroInicialKm, setpointTempC, setpointHumedadPct },
+  { id, nombre, tipoCarga, odometroInicialKm, setpointTempC, setpointHumedadPct, umbralMinC, umbralMaxC },
 ) {
   const { rows } = await pool.query(
     `INSERT INTO simulador.camion
-       (id, nombre, tipo_carga, setpoint_temp_c, setpoint_humedad_pct, odometro_inicial_km, activo)
-     VALUES ($1, $2, $3, $4, $5, $6, true)
+       (id, nombre, tipo_carga, setpoint_temp_c, setpoint_humedad_pct, odometro_inicial_km, activo,
+        umbral_min_c, umbral_max_c)
+     VALUES ($1, $2, $3, $4, $5, $6, true, $7, $8)
      RETURNING id, nombre, tipo_carga, odometro_inicial_km, activo`,
-    [id, nombre, tipoCarga, setpointTempC ?? null, setpointHumedadPct ?? null, odometroInicialKm],
+    [
+      id,
+      nombre,
+      tipoCarga,
+      setpointTempC ?? null,
+      setpointHumedadPct ?? null,
+      odometroInicialKm,
+      umbralMinC ?? null,
+      umbralMaxC ?? null,
+    ],
   );
   return rows[0];
 }
@@ -54,11 +64,16 @@ export async function reactivarCamion(pool, id) {
 // viaje y refrigerada en el siguiente. Por eso al arrancar un viaje que informa la carga se
 // pisa la del camion ya existente (si no, quedaba fija en la del alta y el segmento BLE nunca
 // aparecia en las tramas).
-export async function actualizarCargaCamion(pool, { id, tipoCarga, setpointTempC, setpointHumedadPct }) {
+// Feature 019: los umbrales del viaje siguen el mismo ciclo de vida que el setpoint.
+export async function actualizarCargaCamion(
+  pool,
+  { id, tipoCarga, setpointTempC, setpointHumedadPct, umbralMinC, umbralMaxC },
+) {
   await pool.query(
     `UPDATE simulador.camion
-        SET tipo_carga = $2, setpoint_temp_c = $3, setpoint_humedad_pct = $4
+        SET tipo_carga = $2, setpoint_temp_c = $3, setpoint_humedad_pct = $4,
+            umbral_min_c = $5, umbral_max_c = $6
       WHERE id = $1`,
-    [id, tipoCarga, setpointTempC ?? null, setpointHumedadPct ?? null],
+    [id, tipoCarga, setpointTempC ?? null, setpointHumedadPct ?? null, umbralMinC ?? null, umbralMaxC ?? null],
   );
 }
