@@ -13,7 +13,7 @@ se actualiza igual, como hizo la migración `010`.
 |---|---|---|---|---|
 | `falla_tipo` | `VARCHAR(20)` | sí | `CHECK` ampliado | `apertura_puerta` \| `falla_compresor` \| **`desvio_termico`**. La falla de carga vigente, como mucho una por viaje |
 | `falla_indice_disparo` | `INTEGER` | sí | sin cambio | `NULL` para `desvio_termico`: es inmediato, no espera un índice |
-| `falla_carga_sentido` | `VARCHAR(5)` | sí | **nueva** | `arriba` \| `abajo` (`CHECK`). Solo con `falla_tipo = 'desvio_termico'` |
+| `falla_carga_sentido` | `VARCHAR(6)` | sí | **nueva** | `arriba` \| `abajo` (`CHECK`). Solo con `falla_tipo = 'desvio_termico'` |
 | `falla_carga_activada_en` | `TIMESTAMPTZ` | sí | **nueva** | Cuándo se activó el desvío por HTTP |
 | `falla_carga_desactivada_en` | `TIMESTAMPTZ` | sí | **nueva** | Cuándo se cerró por HTTP, sea un desvío o una falla cargada por SQL |
 

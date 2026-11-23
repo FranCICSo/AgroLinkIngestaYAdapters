@@ -65,7 +65,7 @@ CREATE TABLE IF NOT EXISTS simulador.viaje (
     falla_tipo              VARCHAR(20)     CONSTRAINT viaje_falla_tipo_check
                                             CHECK (falla_tipo IN ('apertura_puerta', 'falla_compresor', 'desvio_termico')),
     falla_indice_disparo    INTEGER,
-    falla_carga_sentido         VARCHAR(5)      CHECK (falla_carga_sentido IN ('arriba', 'abajo')),
+    falla_carga_sentido         VARCHAR(6)      CHECK (falla_carga_sentido IN ('arriba', 'abajo')),
     falla_carga_activada_en     TIMESTAMPTZ,
     falla_carga_desactivada_en  TIMESTAMPTZ,
     -- Sobrecalentamiento de motor (feature 016, migracion 010): independiente de falla_tipo.

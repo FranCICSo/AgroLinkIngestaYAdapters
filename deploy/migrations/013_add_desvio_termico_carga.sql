@@ -6,10 +6,14 @@
 --     agrolink-ingesta junto con el setpoint), para ubicar la temperatura desviada.
 -- Solo toca configuracion del simulador, nunca telemetria (Principio IV). Idempotente.
 ALTER TABLE simulador.viaje
-    ADD COLUMN IF NOT EXISTS falla_carga_sentido        VARCHAR(5)
+    ADD COLUMN IF NOT EXISTS falla_carga_sentido        VARCHAR(6)
         CHECK (falla_carga_sentido IN ('arriba', 'abajo')),
     ADD COLUMN IF NOT EXISTS falla_carga_activada_en    TIMESTAMPTZ,
     ADD COLUMN IF NOT EXISTS falla_carga_desactivada_en TIMESTAMPTZ;
+
+-- 'arriba' tiene 6 caracteres. Una primera version de esta migracion creo la columna como
+-- VARCHAR(5); ensanchar es idempotente y no reescribe filas.
+ALTER TABLE simulador.viaje ALTER COLUMN falla_carga_sentido TYPE VARCHAR(6);
 
 ALTER TABLE simulador.camion
     ADD COLUMN IF NOT EXISTS umbral_min_c NUMERIC(4,1),

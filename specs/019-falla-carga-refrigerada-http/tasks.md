@@ -30,7 +30,7 @@ MVP. US3 (consultar) es P2.
 **Purpose**: esquema y configuración que usan todas las historias.
 
 - [X] T001 Crear `deploy/migrations/013_add_desvio_termico_carga.sql` (data-model.md §1 y §2):
-  - Agrega a `simulador.viaje` las columnas `falla_carga_sentido VARCHAR(5) CHECK (falla_carga_sentido IN ('arriba','abajo'))`, `falla_carga_activada_en TIMESTAMPTZ` y `falla_carga_desactivada_en TIMESTAMPTZ`.
+  - Agrega a `simulador.viaje` las columnas `falla_carga_sentido VARCHAR(6) CHECK (falla_carga_sentido IN ('arriba','abajo'))`, `falla_carga_activada_en TIMESTAMPTZ` y `falla_carga_desactivada_en TIMESTAMPTZ`.
   - Agrega a `simulador.camion` las columnas `umbral_min_c NUMERIC(4,1)` y `umbral_max_c NUMERIC(4,1)`.
   - Todas con `ADD COLUMN IF NOT EXISTS`.
   - Reemplaza el `CHECK` de `falla_tipo`: un bloque `DO $$ ... $$` busca en `pg_constraint` todo `CHECK` de `simulador.viaje` cuya definición mencione `falla_tipo` y lo borra. Después crea `viaje_falla_tipo_check` con `falla_tipo IN ('apertura_puerta','falla_compresor','desvio_termico')` (plan.md, Riesgos).
